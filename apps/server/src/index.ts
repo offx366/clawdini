@@ -1,7 +1,7 @@
 // Clawdini Server - Main entry point
 import express from 'express';
 import cors from 'cors';
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import { GatewayClient } from './gateway/client.js';
@@ -13,11 +13,14 @@ const PORT = process.env.PORT || 3001;
 function loadOpenClawConfig() {
   const configPath = join(homedir(), '.openclaw', 'openclaw.json');
   try {
-    const config = JSON.parse(readFileSync(configPath, 'utf-8'));
-    return config.token || process.env.OPENCLAW_TOKEN;
+    if (existsSync(configPath)) {
+      const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+      return config.token || process.env.OPENCLAW_TOKEN;
+    }
   } catch {
-    return process.env.OPENCLAW_TOKEN;
+    // Ignore
   }
+  return process.env.OPENCLAW_TOKEN;
 }
 
 async function main() {
@@ -25,11 +28,16 @@ async function main() {
   app.use(cors());
   app.use(express.json());
 
-  // Gateway URL from env or default
-  const gatewayUrl = process.env.OPENCLAW_GATEWAY_URL || 'ws://localhost:3000/ws';
+  // Gateway URL from env or default ( Crabwalk uses 18789 )
+  const gatewayUrl = process.env.OPENCLAW_GATEWAY_URL || 'ws://127.0.0.1:18789';
   const token = loadOpenClawConfig();
 
-  console.log('Connecting to Gateway:', gatewayUrl);
+  console.log('='.repeat(50));
+  console.log('Clawdini Server v0.1.0');
+  console.log('='.repeat(50));
+  console.log(`Server: http://localhost:${PORT}`);
+  console.log(`Gateway: ${gatewayUrl}`);
+  console.log('='.repeat(50));
 
   // Create Gateway client
   const gatewayClient = new GatewayClient({
@@ -38,13 +46,12 @@ async function main() {
     scopes: ['operator.read', 'operator.write'],
   });
 
+  // Try to connect, but don't fail if Gateway isn't available
   try {
     await gatewayClient.connect();
-    console.log('Connected to Gateway');
+    console.log('✓ Connected to Gateway');
   } catch (error) {
-    console.error('Failed to connect to Gateway:', error);
-    console.log('Note: Gateway must be running. Set OPENCLAW_GATEWAY_URL if needed.');
-    process.exit(1);
+    console.log('⚠ Gateway not connected (will retry on API calls):', error instanceof Error ? error.message : 'Connection failed');
   }
 
   // API routes
@@ -52,11 +59,16 @@ async function main() {
 
   // Health check
   app.get('/health', (_req, res) => {
-    res.json({ status: 'ok', gatewayConnected: gatewayClient.isConnected() });
+    res.json({
+      status: 'ok',
+      gatewayConnected: gatewayClient.isConnected(),
+      gatewayUrl,
+    });
   });
 
   app.listen(PORT, () => {
-    console.log(`Clawdini server running on http://localhost:${PORT}`);
+    console.log(`✓ Clawdini UI API ready at http://localhost:${PORT}/api`);
+    console.log('');
   });
 }
 
