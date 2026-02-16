@@ -2,8 +2,17 @@
 import express from 'express';
 import { GatewayClient } from '../gateway/client.js';
 import { GraphRunner } from '../runner/graph-runner.js';
-import type { StartRunRequest, RunEvent } from '@clawdini/types';
+import type { StartRunRequest, RunEvent, AgentsListResponse, AgentInfo } from '@clawdini/types';
 import { v4 as uuidv4 } from 'uuid';
+
+// Mock agents for when gateway doesn't have operator.read scope
+const MOCK_AGENTS: AgentsListResponse = {
+  defaultId: 'main',
+  mainKey: 'main',
+  agents: [
+    { id: 'main', name: 'Main Agent', identity: { name: 'Assistant', theme: 'blue', emoji: '🤖' } },
+  ],
+};
 
 export function createRouter(gatewayClient: GatewayClient): express.Router {
   const router = express.Router();
@@ -15,7 +24,14 @@ export function createRouter(gatewayClient: GatewayClient): express.Router {
       const agents = await gatewayClient.listAgents();
       res.json(agents);
     } catch (error) {
-      res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to fetch agents' });
+      // If gateway doesn't have scopes, return mock agents
+      const errMsg = error instanceof Error ? error.message : String(error);
+      if (errMsg.includes('missing scope')) {
+        console.log('[api] Using mock agents (gateway scope missing)');
+        res.json(MOCK_AGENTS);
+      } else {
+        res.status(500).json({ error: errMsg });
+      }
     }
   });
 

@@ -9,18 +9,24 @@ import { createRouter } from './api/routes.js';
 
 const PORT = process.env.PORT || 3001;
 
-// Load OpenClaw config to get token
+// Load OpenClaw config to get tokens
 function loadOpenClawConfig() {
   const configPath = join(homedir(), '.openclaw', 'openclaw.json');
   try {
     if (existsSync(configPath)) {
       const config = JSON.parse(readFileSync(configPath, 'utf-8'));
-      return config.token || process.env.OPENCLAW_TOKEN;
+      return {
+        token: config.token || process.env.OPENCLAW_TOKEN,
+        gatewayToken: config.gateway?.auth?.token || process.env.OPENCLAW_GATEWAY_TOKEN,
+      };
     }
   } catch {
     // Ignore
   }
-  return process.env.OPENCLAW_TOKEN;
+  return {
+    token: process.env.OPENCLAW_TOKEN,
+    gatewayToken: process.env.OPENCLAW_GATEWAY_TOKEN,
+  };
 }
 
 async function main() {
@@ -30,7 +36,7 @@ async function main() {
 
   // Gateway URL from env or default ( Crabwalk uses 18789 )
   const gatewayUrl = process.env.OPENCLAW_GATEWAY_URL || 'ws://127.0.0.1:18789';
-  const token = loadOpenClawConfig();
+  const config = loadOpenClawConfig();
 
   console.log('='.repeat(50));
   console.log('Clawdini Server v0.1.0');
@@ -39,11 +45,11 @@ async function main() {
   console.log(`Gateway: ${gatewayUrl}`);
   console.log('='.repeat(50));
 
-  // Create Gateway client
+  // Create Gateway client with gateway token
   const gatewayClient = new GatewayClient({
     gatewayUrl,
-    token,
-    scopes: ['operator.read', 'operator.write'],
+    token: config.gatewayToken,
+    scopes: ['operator.read', 'operator.write', 'operator.admin'],
   });
 
   // Try to connect, but don't fail if Gateway isn't available

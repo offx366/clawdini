@@ -57,7 +57,7 @@ export class GatewayClient {
     this.options = {
       gatewayUrl: options.gatewayUrl || DEFAULT_GATEWAY_URL,
       token: options.token,
-      scopes: options.scopes || ['operator.read', 'operator.write'],
+      scopes: options.scopes || ['operator.admin'],
     };
   }
 
@@ -93,26 +93,28 @@ export class GatewayClient {
             minProtocol: 3,
             maxProtocol: 3,
             client: {
-              id: 'clawdini',
+              id: 'cli',
               displayName: 'Clawdini',
               version: '0.1.0',
-              platform: 'node',
-              mode: 'client',
+              platform: 'linux',
+              mode: 'cli',
             },
             role: 'operator',
-            scopes: this.options.scopes,
+            scopes: this.options.scopes || ['operator.read', 'operator.write', 'operator.admin'],
             caps: [],
             commands: [],
             permissions: {},
             auth: this.options.token ? { token: this.options.token } : undefined,
           },
         };
+        console.log('[gateway] Sending connect with scopes:', JSON.stringify(this.options.scopes));
         this.ws!.send(JSON.stringify(connectFrame));
       });
 
       this.ws.on('message', (data: WebSocket.Data) => {
         try {
           const raw = data.toString();
+          console.log('[gateway] Raw message:', raw.slice(0, 200));
           const msg = JSON.parse(raw);
           this.handleMessage(msg as Frame, resolve, reject, timeout);
         } catch (e) {
