@@ -1,0 +1,16 @@
+{
+  "name": "clawdini",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Houdini/Nuke for agents - vertical node-based workflow orchestrator",
+  "scripts": {
+    "dev": "pnpm --parallel -r dev",
+    "build": "pnpm -r build",
+    "dev:server": "pnpm --filter clawdini-server dev",
+    "dev:ui": "pnpm --filter clawdini-ui dev"
+  },
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=8"
+  }
+}
