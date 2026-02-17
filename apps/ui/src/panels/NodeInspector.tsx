@@ -139,25 +139,53 @@ export function NodeInspector() {
       )}
 
       {data.type === 'merge' && (
-        <div>
-          <label style={{ display: 'block', fontSize: 11, color: '#888', marginBottom: 4 }}>Mode</label>
-          <select
-            value={(data as MergeNodeData).mode}
-            onChange={(e) => updateNode(selectedNode.id, { mode: e.target.value as 'concat' | 'llm' })}
-            style={{
-              width: '100%',
-              padding: '8px 10px',
-              background: '#1a1a2e',
-              border: '1px solid #333',
-              borderRadius: 4,
-              color: '#eee',
-              fontSize: 13,
-            }}
-          >
-            <option value="concat">Concatenate</option>
-            <option value="llm">LLM Merge</option>
-          </select>
-        </div>
+        <>
+          <div>
+            <label style={{ display: 'block', fontSize: 11, color: '#888', marginBottom: 4 }}>Mode</label>
+            <select
+              value={(data as MergeNodeData).mode}
+              onChange={(e) => updateNode(selectedNode.id, { mode: e.target.value as 'concat' | 'llm' })}
+              style={{
+                width: '100%',
+                padding: '8px 10px',
+                background: '#1a1a2e',
+                border: '1px solid #333',
+                borderRadius: 4,
+                color: '#eee',
+                fontSize: 13,
+              }}
+            >
+              <option value="concat">Concatenate</option>
+              <option value="llm">LLM Merge</option>
+            </select>
+          </div>
+
+          {(data as MergeNodeData).mode === 'llm' && (
+            <div>
+              <label style={{ display: 'block', fontSize: 11, color: '#888', marginBottom: 4 }}>Model (for LLM Merge)</label>
+              <select
+                value={(data as MergeNodeData).modelId || ''}
+                onChange={(e) => updateNode(selectedNode.id, { modelId: e.target.value || undefined })}
+                style={{
+                  width: '100%',
+                  padding: '8px 10px',
+                  background: '#1a1a2e',
+                  border: '1px solid #333',
+                  borderRadius: 4,
+                  color: '#eee',
+                  fontSize: 13,
+                }}
+              >
+                <option value="">Default model</option>
+                {models.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.name} ({model.provider})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </>
       )}
 
       {data.type === 'output' && (

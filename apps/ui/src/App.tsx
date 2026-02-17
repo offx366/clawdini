@@ -170,6 +170,13 @@ function App() {
     setSelectedNode(null);
   }, [setSelectedNode]);
 
+  const onNodeClick = useCallback(
+    (_: React.MouseEvent, node: Node) => {
+      setSelectedNode(node.id);
+    },
+    [setSelectedNode]
+  );
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
       {/* Header */}
@@ -201,6 +208,7 @@ function App() {
             onDragOver={onDragOver}
             onDrop={onDrop}
             onPaneClick={onPaneClick}
+            onNodeClick={onNodeClick}
             nodeTypes={nodeTypes}
             fitView
             style={{ background: '#0a0a1a' }}

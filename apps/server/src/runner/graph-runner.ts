@@ -326,22 +326,125 @@ export class GraphRunner {
   private async executeMergeNode(graph: ClawdiniGraph, nodeId: string, data: MergeNodeData): Promise<string> {
     // Get inputs from connected nodes
     const inputEdges = graph.edges.filter((e) => e.target === nodeId);
-    const sourceOutputs: string[] = [];
+    const sourceOutputs: { id: string; output: string }[] = [];
 
     for (const edge of inputEdges) {
       const sourceOutput = this.nodeOutputs.get(edge.source);
       if (sourceOutput && sourceOutput.status === 'completed') {
-        sourceOutputs.push(sourceOutput.output);
+        sourceOutputs.push({ id: edge.source, output: sourceOutput.output });
       }
     }
 
     if (data.mode === 'concat') {
       return sourceOutputs
-        .map((output, i) => `=== Source ${i + 1} ===\n${output}\n`)
+        .map((item, i) => `=== Source ${i + 1} ===\n${item.output}\n`)
         .join('\n');
     } else {
-      return sourceOutputs.join('\n\n');
+      // LLM Merge - use model to intelligently combine inputs
+      if (sourceOutputs.length === 0) {
+        return '';
+      }
+      if (sourceOutputs.length === 1) {
+        return sourceOutputs[0].output;
+      }
+
+      // Build the merge prompt
+      const inputsText = sourceOutputs
+        .map((item, i) => `--- Input ${i + 1} ---\n${item.output}`)
+        .join('\n\n');
+
+      const mergePrompt = `You are an expert at synthesizing information from multiple sources. Your task is to analyze the multiple inputs below and create a single, comprehensive, and coherent response that combines the most important information from all sources.
+
+Instructions:
+1. Integrate and synthesize the information from all inputs
+2. Remove duplicate information and consolidate similar points
+3. Prioritize the most accurate and up-to-date information
+4. Present the combined information in a clear, organized manner
+5. If there are conflicting facts, note both perspectives and explain the discrepancy
+6. Keep the most relevant and useful information for the user's original question
+
+--- INPUTS ---
+${inputsText}
+
+--- OUTPUT ---
+Provide a comprehensive, well-structured response that combines the above inputs:`;
+
+      // Create a session key for this merge operation
+      const sessionKey = `merge:${this.runId}:${nodeId}`;
+
+      // Set model if specified
+      if (data.modelId) {
+        await this.gatewayClient.sessionsPatch(sessionKey, { model: data.modelId });
+      }
+
+      // Send the merge request
+      const result = await this.gatewayClient.chatSend(sessionKey, mergePrompt);
+
+      // Wait for the response
+      const mergedOutput = await this.waitForMergeResult(nodeId, sessionKey, result.runId);
+      return mergedOutput;
     }
+  }
+
+  private waitForMergeResult(nodeId: string, sessionKey: string, runId: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      let fullOutput = '';
+
+      const chatHandler = (payload: unknown) => {
+        const event = payload as {
+          runId: string;
+          sessionKey: string;
+          state: string;
+          message?: unknown;
+        };
+
+        if (event.sessionKey === sessionKey && event.runId === runId) {
+          if (event.state === 'delta' || event.state === 'final') {
+            // Parse message to extract text
+            let text = '';
+            if (event.message) {
+              const msg = event.message as Record<string, unknown>;
+              if (typeof msg.content === 'string') {
+                text = msg.content;
+              } else if (Array.isArray(msg.content)) {
+                for (const block of msg.content) {
+                  if (typeof block === 'object' && block !== null) {
+                    const b = block as Record<string, unknown>;
+                    if (b.type === 'text' && typeof b.text === 'string') {
+                      text += b.text;
+                    }
+                  }
+                }
+              } else if (typeof msg.text === 'string') {
+                text = msg.text;
+              }
+            }
+            if (text) {
+              if (event.state === 'final') {
+                fullOutput = text;
+              } else {
+                fullOutput += text;
+              }
+            }
+          }
+        }
+      };
+
+      this.gatewayClient.on('chat', chatHandler);
+
+      // Timeout after 60 seconds
+      const timeout = setTimeout(() => {
+        this.gatewayClient.off('chat', chatHandler);
+        if (fullOutput) {
+          resolve(fullOutput);
+        } else {
+          reject(new Error('Merge timeout'));
+        }
+      }, 60000);
+
+      // Store timeout info for cleanup
+      this.runningNodes.set(nodeId + '-merge', { runId: runId, sessionKey: sessionKey });
+    });
   }
 
   private getOutput(graph: ClawdiniGraph, nodeId: string): string {

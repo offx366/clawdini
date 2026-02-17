@@ -27,6 +27,7 @@ export interface AgentNodeData extends BaseNodeData {
 export interface MergeNodeData extends BaseNodeData {
   type: 'merge';
   mode: 'concat' | 'llm';
+  modelId?: string; // optional model for LLM merge
   output: string;
   status: 'idle' | 'running' | 'completed' | 'error';
 }
