@@ -161,29 +161,52 @@ export function NodeInspector() {
           </div>
 
           {(data as MergeNodeData).mode === 'llm' && (
-            <div>
-              <label style={{ display: 'block', fontSize: 11, color: '#888', marginBottom: 4 }}>Model (for LLM Merge)</label>
-              <select
-                value={(data as MergeNodeData).modelId || ''}
-                onChange={(e) => updateNode(selectedNode.id, { modelId: e.target.value || undefined })}
-                style={{
-                  width: '100%',
-                  padding: '8px 10px',
-                  background: '#1a1a2e',
-                  border: '1px solid #333',
-                  borderRadius: 4,
-                  color: '#eee',
-                  fontSize: 13,
-                }}
-              >
-                <option value="">Default model</option>
-                {models.map((model) => (
-                  <option key={model.id} value={model.id}>
-                    {model.name} ({model.provider})
-                  </option>
-                ))}
-              </select>
-            </div>
+            <>
+              <div>
+                <label style={{ display: 'block', fontSize: 11, color: '#888', marginBottom: 4 }}>Model (for LLM Merge)</label>
+                <select
+                  value={(data as MergeNodeData).modelId || ''}
+                  onChange={(e) => updateNode(selectedNode.id, { modelId: e.target.value || undefined })}
+                  style={{
+                    width: '100%',
+                    padding: '8px 10px',
+                    background: '#1a1a2e',
+                    border: '1px solid #333',
+                    borderRadius: 4,
+                    color: '#eee',
+                    fontSize: 13,
+                  }}
+                >
+                  <option value="">Default model</option>
+                  {models.map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {model.name} ({model.provider})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: 11, color: '#888', marginBottom: 4 }}>Custom Prompt (optional)</label>
+                <textarea
+                  value={(data as MergeNodeData).prompt || ''}
+                  onChange={(e) => updateNode(selectedNode.id, { prompt: e.target.value || undefined })}
+                  placeholder="Leave empty to use default prompt..."
+                  rows={6}
+                  style={{
+                    width: '100%',
+                    padding: '8px 10px',
+                    background: '#1a1a2e',
+                    border: '1px solid #333',
+                    borderRadius: 4,
+                    color: '#eee',
+                    fontSize: 12,
+                    resize: 'vertical',
+                    fontFamily: 'monospace',
+                  }}
+                />
+              </div>
+            </>
           )}
         </>
       )}

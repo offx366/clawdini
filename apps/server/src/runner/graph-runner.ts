@@ -349,11 +349,20 @@ export class GraphRunner {
       }
 
       // Build the merge prompt
-      const inputsText = sourceOutputs
-        .map((item, i) => `--- Input ${i + 1} ---\n${item.output}`)
-        .join('\n\n');
+      let mergePrompt: string;
+      if (data.prompt) {
+        // Use custom prompt - replace {INPUTS} placeholder with actual inputs
+        const inputsText = sourceOutputs
+          .map((item, i) => `Input ${i + 1}:\n${item.output}`)
+          .join('\n\n---\n\n');
+        mergePrompt = data.prompt.replace(/\{INPUTS\}/gi, inputsText);
+      } else {
+        // Default prompt
+        const inputsText = sourceOutputs
+          .map((item, i) => `--- Input ${i + 1} ---\n${item.output}`)
+          .join('\n\n');
 
-      const mergePrompt = `You are an expert at synthesizing information from multiple sources. Your task is to analyze the multiple inputs below and create a single, comprehensive, and coherent response that combines the most important information from all sources.
+        mergePrompt = `You are an expert at synthesizing information from multiple sources. Your task is to analyze the multiple inputs below and create a single, comprehensive, and coherent response that combines the most important information from all sources.
 
 Instructions:
 1. Integrate and synthesize the information from all inputs
@@ -368,6 +377,7 @@ ${inputsText}
 
 --- OUTPUT ---
 Provide a comprehensive, well-structured response that combines the above inputs:`;
+      }
 
       // Create a session key for this merge operation
       const sessionKey = `merge:${this.runId}:${nodeId}`;
