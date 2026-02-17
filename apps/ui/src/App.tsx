@@ -143,6 +143,28 @@ function App() {
     [storeEdges, setEdges]
   );
 
+  // Track connection start for potential disconnect
+  const onConnectStart = useCallback(
+    (_: React.MouseEvent, edge: { nodeId: string; handleId: string | null; handleType: string }) => {
+      console.log('[App] Connect start:', edge);
+    },
+    []
+  );
+
+  // Handle connection end - if no valid connection made, disconnect existing
+  const onConnectEnd = useCallback(
+    (event: MouseEvent | TouchEvent | null, edgeParams: { nodeId?: string; handleId?: string | null; handleType?: string } | null) => {
+      // If edgeParams is null and event exists, connection was cancelled (dragged to empty space)
+      // This is the Houdini-style disconnect - remove the existing connection from that handle
+      if (!edgeParams && event) {
+        // User dragged but released in empty space - this is a disconnect attempt
+        // We can't easily detect which handle they started from, so this is limited
+        console.log('[App] Connection cancelled (dragged to empty space)');
+      }
+    },
+    []
+  );
+
   const onDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
@@ -214,6 +236,8 @@ function App() {
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
+            onConnectStart={onConnectStart}
+            onConnectEnd={onConnectEnd}
             onDragOver={onDragOver}
             onDrop={onDrop}
             onPaneClick={onPaneClick}

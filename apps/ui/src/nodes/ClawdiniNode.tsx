@@ -1,13 +1,13 @@
 // Custom Clawdini Node for ReactFlow
-import { memo, useCallback } from 'react';
-import { Handle, Position, type NodeProps, type OnConnect } from '@xyflow/react';
+import { memo } from 'react';
+import { Handle, Position, type NodeProps } from '@xyflow/react';
 import {
   InputNodeData,
   AgentNodeData,
   MergeNodeData,
   OutputNodeData,
 } from '@clawdini/types';
-import { Bot, FileInput, GitMerge, FileOutput, Loader2, CheckCircle, XCircle, X } from 'lucide-react';
+import { Bot, FileInput, GitMerge, FileOutput, Loader2, CheckCircle, XCircle } from 'lucide-react';
 
 const nodeStyles: Record<string, React.CSSProperties> = {
   input: { background: '#1e3a5f', borderColor: '#3b82f6' },
@@ -30,7 +30,7 @@ const statusIcons: Record<string, React.ComponentType<{ className?: string; styl
   error: XCircle,
 };
 
-function ClawdiniNode({ data, selected, handleId, isConnectable }: NodeProps) {
+function ClawdiniNode({ data, selected, id }: NodeProps) {
   const nodeData = data as InputNodeData | AgentNodeData | MergeNodeData | OutputNodeData;
   const type = nodeData.type;
   const style = nodeStyles[type] || nodeStyles.input;
@@ -39,12 +39,6 @@ function ClawdiniNode({ data, selected, handleId, isConnectable }: NodeProps) {
   // Get status only for nodes that have it
   const status = 'status' in nodeData ? (nodeData as AgentNodeData | MergeNodeData).status : 'idle';
   const StatusIcon = statusIcons[status || 'idle'];
-
-  // For disconnecting - click on handle to remove connection
-  const handleClick = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    // The edge removal will be handled by parent via custom data
-  }, []);
 
   return (
     <div
