@@ -4,7 +4,7 @@ import { Trash2 } from 'lucide-react';
 import type { InputNodeData, AgentNodeData, MergeNodeData } from '@clawdini/types';
 
 export function NodeInspector() {
-  const { nodes, selectedNodeId, agents, updateNode, removeNode } = useGraphStore();
+  const { nodes, selectedNodeId, agents, models, updateNode, removeNode } = useGraphStore();
 
   const selectedNode = nodes.find((n) => n.id === selectedNodeId);
 
@@ -87,29 +87,55 @@ export function NodeInspector() {
       )}
 
       {data.type === 'agent' && (
-        <div>
-          <label style={{ display: 'block', fontSize: 11, color: '#888', marginBottom: 4 }}>Agent</label>
-          <select
-            value={(data as AgentNodeData).agentId}
-            onChange={(e) => updateNode(selectedNode.id, { agentId: e.target.value })}
-            style={{
-              width: '100%',
-              padding: '8px 10px',
-              background: '#1a1a2e',
-              border: '1px solid #333',
-              borderRadius: 4,
-              color: '#eee',
-              fontSize: 13,
-            }}
-          >
-            <option value="">Select agent...</option>
-            {agents.map((agent) => (
-              <option key={agent.id} value={agent.id}>
-                {agent.identity?.name || agent.name || agent.id}
-              </option>
-            ))}
-          </select>
-        </div>
+        <>
+          <div>
+            <label style={{ display: 'block', fontSize: 11, color: '#888', marginBottom: 4 }}>Agent</label>
+            <select
+              value={(data as AgentNodeData).agentId}
+              onChange={(e) => updateNode(selectedNode.id, { agentId: e.target.value })}
+              style={{
+                width: '100%',
+                padding: '8px 10px',
+                background: '#1a1a2e',
+                border: '1px solid #333',
+                borderRadius: 4,
+                color: '#eee',
+                fontSize: 13,
+              }}
+            >
+              <option value="">Select agent...</option>
+              {agents.map((agent) => (
+                <option key={agent.id} value={agent.id}>
+                  {agent.identity?.name || agent.name || agent.id}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: 11, color: '#888', marginBottom: 4 }}>Model (optional)</label>
+            <select
+              value={(data as AgentNodeData).modelId || ''}
+              onChange={(e) => updateNode(selectedNode.id, { modelId: e.target.value || undefined })}
+              style={{
+                width: '100%',
+                padding: '8px 10px',
+                background: '#1a1a2e',
+                border: '1px solid #333',
+                borderRadius: 4,
+                color: '#eee',
+                fontSize: 13,
+              }}
+            >
+              <option value="">Default model</option>
+              {models.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.name} ({model.provider})
+                </option>
+              ))}
+            </select>
+          </div>
+        </>
       )}
 
       {data.type === 'merge' && (

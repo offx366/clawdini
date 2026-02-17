@@ -288,8 +288,8 @@ export class GraphRunner {
 
     try {
       // Start chat
-      console.log('[Runner] Sending chat to gateway:', sessionKey, inputText?.slice(0, 50));
-      const result = await this.gatewayClient.chatSend(sessionKey, inputText);
+      console.log('[Runner] Sending chat to gateway:', sessionKey, inputText?.slice(0, 50), 'model:', data.modelId);
+      const result = await this.gatewayClient.chatSend(sessionKey, inputText, undefined, data.modelId);
       console.log('[Runner] Chat result:', result);
 
       // Track running node

@@ -460,13 +460,21 @@ export class GatewayClient {
     return this.request<AgentsListResponse>('agents.list');
   }
 
-  async chatSend(sessionKey: string, message: string, idempotencyKey?: string): Promise<{ runId: string }> {
-    return this.request<{ runId: string }>('chat.send', {
+  async listModels(): Promise<{ models: Array<{ id: string; name: string; provider: string }> }> {
+    return this.request<{ models: Array<{ id: string; name: string; provider: string }> }>('models.list');
+  }
+
+  async chatSend(sessionKey: string, message: string, idempotencyKey?: string, modelId?: string): Promise<{ runId: string }> {
+    const params: Record<string, unknown> = {
       sessionKey,
       message,
       idempotencyKey: idempotencyKey || uuidv4(),
       timeoutMs: 120000,
-    });
+    };
+    if (modelId) {
+      params.modelId = modelId;
+    }
+    return this.request<{ runId: string }>('chat.send', params);
   }
 
   async chatAbort(sessionKey: string, runId?: string): Promise<void> {

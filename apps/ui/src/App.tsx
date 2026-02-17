@@ -31,6 +31,7 @@ function App() {
     setEdges,
     setSelectedNode,
     setAgents,
+    setModels,
     addNode,
   } = useGraphStore();
 
@@ -59,7 +60,7 @@ function App() {
     [storeEdges]
   );
 
-  // Fetch agents on mount
+  // Fetch agents and models on mount
   useEffect(() => {
     fetch('/api/agents')
       .then((res) => res.json())
@@ -69,7 +70,16 @@ function App() {
       .catch((err) => {
         console.error('Failed to fetch agents:', err);
       });
-  }, [setAgents]);
+
+    fetch('/api/models')
+      .then((res) => res.json())
+      .then((data: { models: Array<{ id: string; name: string; provider: string }> }) => {
+        setModels(data.models || []);
+      })
+      .catch((err) => {
+        console.error('Failed to fetch models:', err);
+      });
+  }, [setAgents, setModels]);
 
   const onNodesChange = useCallback(
     (changes: any[]) => {

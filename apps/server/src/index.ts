@@ -9,15 +9,38 @@ import { createRouter } from './api/routes.js';
 
 const PORT = process.env.PORT || 3001;
 
-// Load OpenClaw config to get tokens
+// Load OpenClaw config to get tokens and models
 function loadOpenClawConfig() {
   const configPath = join(homedir(), '.openclaw', 'openclaw.json');
   try {
     if (existsSync(configPath)) {
       const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+      // Extract configured models from agents.defaults.model
+      const modelConfig = config.agents?.defaults?.model;
+      const models: Array<{ id: string; name: string; provider: string }> = [];
+      const seen = new Set<string>();
+
+      const addModel = (modelId: string) => {
+        if (!seen.has(modelId)) {
+          seen.add(modelId);
+          models.push({ id: modelId, name: getModelName(modelId), provider: getProvider(modelId) });
+        }
+      };
+
+      if (modelConfig?.primary) {
+        addModel(modelConfig.primary);
+      }
+
+      if (modelConfig?.fallbacks) {
+        for (const fallback of modelConfig.fallbacks) {
+          addModel(fallback);
+        }
+      }
+
       return {
         token: config.token || process.env.OPENCLAW_TOKEN,
         gatewayToken: config.gateway?.auth?.token || process.env.OPENCLAW_GATEWAY_TOKEN,
+        models,
       };
     }
   } catch {
@@ -26,7 +49,20 @@ function loadOpenClawConfig() {
   return {
     token: process.env.OPENCLAW_TOKEN,
     gatewayToken: process.env.OPENCLAW_GATEWAY_TOKEN,
+    models: [],
   };
+}
+
+function getModelName(modelId: string): string {
+  // Extract name from model ID (last part after /)
+  const parts = modelId.split('/');
+  return parts[parts.length - 1] || modelId;
+}
+
+function getProvider(modelId: string): string {
+  // Extract provider from model ID (first part before /)
+  const parts = modelId.split('/');
+  return parts[0] || 'unknown';
 }
 
 async function main() {
@@ -61,7 +97,7 @@ async function main() {
   }
 
   // API routes
-  app.use('/api', createRouter(gatewayClient));
+  app.use('/api', createRouter(gatewayClient, { models: config.models }));
 
   // Health check
   app.get('/health', (_req, res) => {

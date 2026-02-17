@@ -21,9 +21,14 @@ interface RunContext {
   buffer: RunEvent[];
 }
 
-export function createRouter(gatewayClient: GatewayClient): express.Router {
+export interface RouterOptions {
+  models?: Array<{ id: string; name: string; provider: string }>;
+}
+
+export function createRouter(gatewayClient: GatewayClient, options: RouterOptions = {}): express.Router {
   const router = express.Router();
   const runs = new Map<string, RunContext>();
+  const { models = [] } = options;
 
   const writeSse = (res: express.Response, event: RunEvent | { type: string; [k: string]: unknown }) => {
     // Use default SSE "message" event so browser EventSource `onmessage` receives it.
@@ -44,6 +49,12 @@ export function createRouter(gatewayClient: GatewayClient): express.Router {
         res.status(500).json({ error: errMsg });
       }
     }
+  });
+
+  // GET /api/models - list configured models from OpenClaw config
+  router.get('/models', async (req, res) => {
+    // Return configured models from OpenClaw config
+    res.json({ models });
   });
 
   // POST /api/run - start a run

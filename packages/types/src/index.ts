@@ -18,6 +18,7 @@ export interface InputNodeData extends BaseNodeData {
 export interface AgentNodeData extends BaseNodeData {
   type: 'agent';
   agentId: string;
+  modelId?: string;
   output: string;
   status: 'idle' | 'running' | 'completed' | 'error';
 }
