@@ -21,51 +21,6 @@ interface NodeOutput {
   error?: string;
 }
 
-// Topological sort - order nodes by dependencies
-function topologicalSort(nodes: ClawdiniNode[], edges: { source: string; target: string }[]): string[] {
-  const nodeIds = new Set(nodes.map((n) => n.id));
-  const inDegree = new Map<string, number>();
-  const adjacency = new Map<string, string[]>();
-
-  // Initialize
-  nodes.forEach((node) => {
-    inDegree.set(node.id, 0);
-    adjacency.set(node.id, []);
-  });
-
-  // Build graph
-  edges.forEach((edge) => {
-    if (nodeIds.has(edge.source) && nodeIds.has(edge.target)) {
-      adjacency.get(edge.source)!.push(edge.target);
-      inDegree.set(edge.target, (inDegree.get(edge.target) || 0) + 1);
-    }
-  });
-
-  // Kahn's algorithm
-  const queue: string[] = [];
-  inDegree.forEach((degree, nodeId) => {
-    if (degree === 0) queue.push(nodeId);
-  });
-
-  const result: string[] = [];
-  while (queue.length > 0) {
-    const nodeId = queue.shift()!;
-    result.push(nodeId);
-    adjacency.get(nodeId)?.forEach((target) => {
-      const newDegree = (inDegree.get(target) || 0) - 1;
-      inDegree.set(target, newDegree);
-      if (newDegree === 0) queue.push(target);
-    });
-  }
-
-  // Check for cycles
-  if (result.length !== nodes.length) {
-    throw new Error('Graph has cycles');
-  }
-
-  return result;
-}
-
 // Group nodes by level for parallel execution
 function groupByLevel(nodes: ClawdiniNode[], edges: { source: string; target: string }[]): string[][] {
   const nodeIds = new Set(nodes.map((n) => n.id));
@@ -124,16 +79,22 @@ export class GraphRunner {
   }
 
   async run(graph: ClawdiniGraph, globalInput?: string): Promise<void> {
+    console.log('[Runner] Starting run with', graph.nodes.length, 'nodes');
     this.cancelled = false;
     this.nodeOutputs.clear();
     this.runningNodes.clear();
+
+    // Give SSE clients time to connect
+    await new Promise(resolve => setTimeout(resolve, 500));
 
     this.emitEvent({ type: 'runStarted', runId: this.runId });
 
     try {
       const levels = groupByLevel(graph.nodes, graph.edges);
+      console.log('[Runner] Levels:', levels);
 
       for (const level of levels) {
+        console.log('[Runner] Processing level:', level);
         if (this.cancelled) break;
 
         // Execute all nodes in parallel at this level
@@ -145,6 +106,7 @@ export class GraphRunner {
         this.emitEvent({ type: 'runCompleted', runId: this.runId });
       }
     } catch (error) {
+      console.error('[Runner] Error:', error);
       this.emitEvent({
         type: 'runError',
         runId: this.runId,
@@ -156,6 +118,8 @@ export class GraphRunner {
   private async executeNode(graph: ClawdiniGraph, nodeId: string, globalInput?: string): Promise<void> {
     const node = graph.nodes.find((n) => n.id === nodeId);
     if (!node) return;
+
+    console.log('[Runner] Executing node:', nodeId, node.data.type);
 
     const data = node.data as ClawdiniNodeData;
 
@@ -170,43 +134,50 @@ export class GraphRunner {
           output = await this.executeInputNode(data as InputNodeData);
           break;
         case 'agent':
-          output = await this.executeAgentNode(graph, data as AgentNodeData, globalInput);
+          output = await this.executeAgentNode(graph, node, data as AgentNodeData, globalInput);
           break;
         case 'merge':
-          output = await this.executeMergeNode(graph, data as MergeNodeData);
+          output = await this.executeMergeNode(graph, nodeId, data as MergeNodeData);
           break;
         case 'output':
-          // Output node just displays combined results
-          output = this.getMergeOutput(graph, nodeId);
+          output = this.getOutput(graph, nodeId);
           break;
       }
 
+      console.log('[Runner] Node output:', nodeId, output?.slice(0, 50));
       this.nodeOutputs.set(nodeId, { output, status: 'completed' });
       this.emitEvent({ type: 'nodeFinal', nodeId, data: output });
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error('[Runner] Node error:', nodeId, errorMsg);
       this.nodeOutputs.set(nodeId, { output: '', status: 'error', error: errorMsg });
       this.emitEvent({ type: 'nodeError', nodeId, error: errorMsg });
     }
   }
 
   private async executeInputNode(data: InputNodeData): Promise<string> {
-    return data.prompt;
+    return data.prompt || '';
   }
 
   private async executeAgentNode(
     graph: ClawdiniGraph,
+    node: ClawdiniNode,
     data: AgentNodeData,
     globalInput?: string
   ): Promise<string> {
+    const nodeId = node.id;
+
     // Get input from connected nodes
-    const inputEdges = graph.edges.filter((e) => e.target === data.agentId);
+    const inputEdges = graph.edges.filter((e) => e.target === nodeId);
+    console.log('[Runner] Agent input edges:', inputEdges);
+
     let inputText = globalInput || '';
 
     if (inputEdges.length > 0) {
       const sourceOutputs: string[] = [];
       for (const edge of inputEdges) {
         const sourceOutput = this.nodeOutputs.get(edge.source);
+        console.log('[Runner] Source output for', edge.source, sourceOutput?.status);
         if (sourceOutput && sourceOutput.status === 'completed') {
           sourceOutputs.push(sourceOutput.output);
         }
@@ -214,60 +185,135 @@ export class GraphRunner {
       inputText = sourceOutputs.join('\n\n');
     }
 
-    // Generate session key
-    const sessionKey = `agent:${data.agentId}:clawdini-${this.runId}-${data.agentId}`;
+    console.log('[Runner] Input text:', inputText?.slice(0, 100));
+
+    // Use the agentId from node data
+    const agentId = data.agentId || 'main';
+    // Make sessionKey unique per node to avoid collisions when running nodes in parallel.
+    const sessionKey = `agent:${agentId}:clawdini:${this.runId}:${nodeId}`;
+
+    console.log('[Runner] Session key:', sessionKey);
 
     // Reset session for clean run
     try {
       await this.gatewayClient.sessionsReset(sessionKey);
-    } catch {
-      // Ignore if session doesn't exist
+    } catch (e) {
+      console.log('[Runner] Session reset error (ignored):', e);
     }
 
-    // Set up event listener for streaming
+    // Set up event listener for streaming. We prefer `chat` events; they include sessionKey
+    // and are sufficient for incremental UI output.
+    // Note: Gateway `chat` events send cumulative message content for each delta (not incremental).
+    // We track the last full text and only emit the new suffix as nodeDelta.
     let fullOutput = '';
-    const handler = (payload: unknown) => {
+    const nodeIdCopy = nodeId; // Capture for closure
+    let finished = false;
+    let finishOk: (() => void) | null = null;
+    let finishErr: ((e: Error) => void) | null = null;
+    const finishedPromise = new Promise<void>((resolve, reject) => {
+      finishOk = resolve;
+      finishErr = reject;
+    });
+
+    const chatHandler = (payload: unknown) => {
       const event = payload as {
         runId: string;
         sessionKey: string;
         state: string;
-        message?: { delta?: { text?: string }; text?: string };
+        message?: unknown;
         errorMessage?: string;
       };
 
+      console.log('[Runner] Chat event received:', event.state, event.sessionKey);
+
       if (event.sessionKey === sessionKey) {
-        if (event.state === 'delta') {
-          const text = event.message?.delta?.text || event.message?.text || '';
-          fullOutput += text;
-          this.emitEvent({ type: 'nodeDelta', nodeId: data.agentId, data: text });
+        if (event.state === 'delta' || event.state === 'final') {
+          // Parse message to extract text
+          let text = '';
+          if (event.message) {
+            const msg = event.message as Record<string, unknown>;
+            if (typeof msg.content === 'string') {
+              text = msg.content;
+            } else if (Array.isArray(msg.content)) {
+              // Handle content blocks
+              for (const block of msg.content) {
+                if (typeof block === 'object' && block !== null) {
+                  const b = block as Record<string, unknown>;
+                  if (b.type === 'text' && typeof b.text === 'string') {
+                    text += b.text;
+                  }
+                }
+              }
+            } else if (typeof msg.text === 'string') {
+              text = msg.text;
+            }
+          }
+          if (text) {
+            // `text` is cumulative. Emit only the new suffix when possible.
+            if (text.startsWith(fullOutput)) {
+              const delta = text.slice(fullOutput.length);
+              if (delta) {
+                this.emitEvent({ type: 'nodeDelta', nodeId: nodeIdCopy, data: delta });
+              }
+              fullOutput = text;
+            } else {
+              // Unexpected non-prefix update; fall back to replacing.
+              fullOutput = text;
+              this.emitEvent({ type: 'nodeDelta', nodeId: nodeIdCopy, data: text });
+            }
+          }
+          if (event.state === 'final' && !finished) {
+            finished = true;
+            finishOk?.();
+          }
         } else if (event.state === 'error') {
-          this.emitEvent({ type: 'nodeError', nodeId: data.agentId, error: event.errorMessage });
+          const errMsg = event.errorMessage || 'chat error';
+          this.emitEvent({ type: 'nodeError', nodeId: nodeIdCopy, error: errMsg });
+          if (!finished) {
+            finished = true;
+            finishErr?.(new Error(errMsg));
+          }
+        } else if (event.state === 'aborted') {
+          const errMsg = 'aborted';
+          this.emitEvent({ type: 'nodeError', nodeId: nodeIdCopy, error: errMsg });
+          if (!finished) {
+            finished = true;
+            finishErr?.(new Error(errMsg));
+          }
         }
       }
     };
 
-    this.gatewayClient.on('chat', handler);
+    this.gatewayClient.on('chat', chatHandler);
 
     try {
       // Start chat
+      console.log('[Runner] Sending chat to gateway:', sessionKey, inputText?.slice(0, 50));
       const result = await this.gatewayClient.chatSend(sessionKey, inputText);
+      console.log('[Runner] Chat result:', result);
 
       // Track running node
-      this.runningNodes.set(data.agentId, { runId: result.runId, sessionKey });
+      this.runningNodes.set(nodeId, { runId: result.runId, sessionKey });
 
-      // Wait a bit for streaming to complete (simplified - in production would wait for final event)
-      await new Promise((resolve) => setTimeout(resolve, 3000));
+      // Wait for final/error (with a hard timeout).
+      const timeoutMs = 120000;
+      await Promise.race([
+        finishedPromise,
+        new Promise<void>((_resolve, reject) =>
+          setTimeout(() => reject(new Error(`agent timeout after ${timeoutMs}ms`)), timeoutMs)
+        ),
+      ]);
 
-      return fullOutput || inputText + ' [Agent completed]';
+      return fullOutput;
     } finally {
-      this.gatewayClient.off('chat', handler);
-      this.runningNodes.delete(data.agentId);
+      this.gatewayClient.off('chat', chatHandler);
+      this.runningNodes.delete(nodeId);
     }
   }
 
-  private async executeMergeNode(graph: ClawdiniGraph, data: MergeNodeData): Promise<string> {
+  private async executeMergeNode(graph: ClawdiniGraph, nodeId: string, data: MergeNodeData): Promise<string> {
     // Get inputs from connected nodes
-    const inputEdges = graph.edges.filter((e) => e.target === data.label);
+    const inputEdges = graph.edges.filter((e) => e.target === nodeId);
     const sourceOutputs: string[] = [];
 
     for (const edge of inputEdges) {
@@ -278,18 +324,16 @@ export class GraphRunner {
     }
 
     if (data.mode === 'concat') {
-      // Simple concatenation
       return sourceOutputs
         .map((output, i) => `=== Source ${i + 1} ===\n${output}\n`)
         .join('\n');
     } else {
-      // LLM merge - just concat for MVP
       return sourceOutputs.join('\n\n');
     }
   }
 
-  private getMergeOutput(graph: ClawdiniGraph, outputNodeId: string): string {
-    const inputEdges = graph.edges.filter((e) => e.target === outputNodeId);
+  private getOutput(graph: ClawdiniGraph, nodeId: string): string {
+    const inputEdges = graph.edges.filter((e) => e.target === nodeId);
     const sourceOutputs: string[] = [];
 
     for (const edge of inputEdges) {
@@ -305,7 +349,6 @@ export class GraphRunner {
   async cancel(): Promise<void> {
     this.cancelled = true;
 
-    // Abort all running nodes
     for (const [, nodeInfo] of this.runningNodes) {
       try {
         await this.gatewayClient.chatAbort(nodeInfo.sessionKey, nodeInfo.runId);

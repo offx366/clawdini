@@ -134,8 +134,12 @@ function App() {
       event.preventDefault();
 
       const nodeType = event.dataTransfer.getData('application/reactflow') as ClawdiniNodeData['type'];
+      console.log('[App] onDrop:', nodeType, event.dataTransfer.types);
 
-      if (!nodeType) return;
+      if (!nodeType) {
+        console.log('[App] No node type in drop');
+        return;
+      }
 
       const reactFlowBounds = document.querySelector('.react-flow')?.getBoundingClientRect();
 
@@ -145,6 +149,7 @@ function App() {
           y: event.clientY - reactFlowBounds.top - 20,
         };
 
+        console.log('[App] Adding node at:', position);
         addNode(nodeType, position);
       }
     },

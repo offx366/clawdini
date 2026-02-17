@@ -1,6 +1,7 @@
 // Node Palette - left panel with draggable node types
 import { FileInput, Bot, GitMerge, FileOutput } from 'lucide-react';
 import type { ClawdiniNodeData } from '@clawdini/types';
+import { useGraphStore } from '../store';
 
 const nodeTypes: { type: ClawdiniNodeData['type']; label: string; icon: React.ComponentType<{ className?: string }>; color: string }[] = [
   { type: 'input', label: 'Input', icon: FileInput, color: '#3b82f6' },
@@ -10,9 +11,19 @@ const nodeTypes: { type: ClawdiniNodeData['type']; label: string; icon: React.Co
 ];
 
 export function NodePalette() {
+  const { addNode } = useGraphStore();
+
   const onDragStart = (event: React.DragEvent, nodeType: ClawdiniNodeData['type']) => {
+    console.log('[Palette] Drag start:', nodeType);
     event.dataTransfer.setData('application/reactflow', nodeType);
     event.dataTransfer.effectAllowed = 'move';
+  };
+
+  // Fallback: click to add node at center
+  const onClick = (nodeType: ClawdiniNodeData['type']) => {
+    console.log('[Palette] Click add:', nodeType);
+    // Add at center of canvas
+    addNode(nodeType, { x: 250, y: 150 });
   };
 
   return (
@@ -35,6 +46,7 @@ export function NodePalette() {
           key={type}
           draggable
           onDragStart={(e) => onDragStart(e, type)}
+          onClick={() => onClick(type)}
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -57,7 +69,7 @@ export function NodePalette() {
             e.currentTarget.style.background = '#1a1a2e';
           }}
         >
-          <Icon className="w-4 h-4" />
+          <Icon className="w-4 h-4" style={{ color }} />
           {label}
         </div>
       ))}

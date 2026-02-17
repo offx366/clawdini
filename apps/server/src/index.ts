@@ -45,7 +45,7 @@ async function main() {
   console.log(`Gateway: ${gatewayUrl}`);
   console.log('='.repeat(50));
 
-  // Create Gateway client with gateway token
+  // Create Gateway client with gateway token from config
   const gatewayClient = new GatewayClient({
     gatewayUrl,
     token: config.gatewayToken,
