@@ -59,6 +59,7 @@ export interface ClawdiniEdge {
   id: string;
   source: string;
   target: string;
+  selected?: boolean;
 }
 
 // Graph - the full workflow

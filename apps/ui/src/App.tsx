@@ -56,6 +56,8 @@ function App() {
         target: e.target,
         type: 'smoothstep',
         style: { stroke: '#666', strokeWidth: 2 },
+        selectable: true,
+        selected: e.selected || false,
       })),
     [storeEdges]
   );
@@ -209,12 +211,26 @@ function App() {
             onDrop={onDrop}
             onPaneClick={onPaneClick}
             onNodeClick={onNodeClick}
+            onEdgeClick={(_, edge) => {
+              // Select edge by setting it as the only selected edge
+              setEdges(storeEdges.map(e => e.id === edge.id ? { ...e, selected: true } : { ...e, selected: false }));
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Delete' || event.key === 'Backspace') {
+                // Delete selected edges
+                const selectedEdges = storeEdges.filter(e => e.selected);
+                if (selectedEdges.length > 0) {
+                  setEdges(storeEdges.filter(e => !e.selected));
+                }
+              }
+            }}
             nodeTypes={nodeTypes}
             fitView
             style={{ background: '#0a0a1a' }}
             defaultEdgeOptions={{
               type: 'smoothstep',
               style: { stroke: '#666', strokeWidth: 2 },
+              selectable: true,
             }}
           >
             <Background color="#333" gap={20} />
