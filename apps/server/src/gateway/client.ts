@@ -359,10 +359,8 @@ export class GatewayClient {
           break;
 
         case 'res':
-          console.log('[gateway] res:', msg.id, 'ok:', msg.ok, 'payload:', msg.payload ? JSON.stringify(msg.payload).slice(0, 200) : 'none');
           // Check if this is the hello-ok response to our connect request
           if (msg.ok && (msg.payload as HelloOk)?.type === 'hello-ok') {
-            console.log('[gateway] Connected! Setting connected=true');
             if (connectTimeout) clearTimeout(connectTimeout);
             this.connected = true;
             this.connecting = false;
@@ -371,9 +369,8 @@ export class GatewayClient {
             }
             connectResolve?.();
           } else if (!msg.ok) {
-            console.error('[gateway] Connect failed:', msg.error);
-            if (connectTimeout) clearTimeout(connectTimeout);
-            this.connecting = false;
+            console.error('[gateway] Request failed:', msg.error);
+            this.handleResponse(msg);
           } else {
             this.handleResponse(msg);
           }
@@ -464,16 +461,13 @@ export class GatewayClient {
     return this.request<{ models: Array<{ id: string; name: string; provider: string }> }>('models.list');
   }
 
-  async chatSend(sessionKey: string, message: string, idempotencyKey?: string, modelId?: string): Promise<{ runId: string }> {
+  async chatSend(sessionKey: string, message: string, idempotencyKey?: string): Promise<{ runId: string }> {
     const params: Record<string, unknown> = {
       sessionKey,
       message,
       idempotencyKey: idempotencyKey || uuidv4(),
       timeoutMs: 120000,
     };
-    if (modelId) {
-      params.modelId = modelId;
-    }
     return this.request<{ runId: string }>('chat.send', params);
   }
 
@@ -483,5 +477,13 @@ export class GatewayClient {
 
   async sessionsReset(sessionKey: string): Promise<void> {
     await this.request('sessions.reset', { key: sessionKey, reason: 'new' });
+  }
+
+  async sessionsPatch(sessionKey: string, patch: Record<string, unknown>): Promise<void> {
+    await this.request('sessions.patch', { key: sessionKey, ...patch });
+  }
+
+  async sessionsPreview(sessionKey: string, message: string): Promise<{ preview: string }> {
+    return this.request<{ preview: string }>('sessions.preview', { key: sessionKey, message });
   }
 }

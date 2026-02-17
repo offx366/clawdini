@@ -254,6 +254,8 @@ export class GraphRunner {
               const delta = text.slice(fullOutput.length);
               if (delta) {
                 this.emitEvent({ type: 'nodeDelta', nodeId: nodeIdCopy, data: delta });
+                // Also emit thinking event for detailed debug
+                this.emitEvent({ type: 'thinking', nodeId: nodeIdCopy, content: delta.slice(0, 50) });
               }
               fullOutput = text;
             } else {
@@ -288,9 +290,19 @@ export class GraphRunner {
 
     try {
       // Start chat
-      console.log('[Runner] Sending chat to gateway:', sessionKey, inputText?.slice(0, 50), 'model:', data.modelId);
-      const result = await this.gatewayClient.chatSend(sessionKey, inputText, undefined, data.modelId);
+      const modelInfo = data.modelId ? ` with model: ${data.modelId}` : ' (using default model)';
+      console.log('[Runner] Sending chat to gateway:', sessionKey, inputText?.slice(0, 50), modelInfo);
+      this.emitEvent({ type: 'thinking', nodeId, content: `🤖 Starting agent${modelInfo}...` });
+
+      // If model is specified, patch the session to set the model before sending
+      if (data.modelId) {
+        console.log('[Runner] Patching session with model:', data.modelId);
+        await this.gatewayClient.sessionsPatch(sessionKey, { model: data.modelId });
+      }
+
+      const result = await this.gatewayClient.chatSend(sessionKey, inputText);
       console.log('[Runner] Chat result:', result);
+      this.emitEvent({ type: 'thinking', nodeId, content: `📡 Request sent, waiting for response...` });
 
       // Track running node
       this.runningNodes.set(nodeId, { runId: result.runId, sessionKey });
