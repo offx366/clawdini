@@ -1,7 +1,7 @@
 // Node Inspector - right panel for editing selected node properties
 import { useGraphStore } from '../store';
 import { Trash2 } from 'lucide-react';
-import type { InputNodeData, AgentNodeData, MergeNodeData } from '@clawdini/types';
+import type { InputNodeData, AgentNodeData, MergeNodeData, OutputNodeData } from '@clawdini/types';
 
 export function NodeInspector() {
   const { nodes, selectedNodeId, agents, models, updateNode, removeNode } = useGraphStore();
@@ -157,6 +157,29 @@ export function NodeInspector() {
             <option value="concat">Concatenate</option>
             <option value="llm">LLM Merge</option>
           </select>
+        </div>
+      )}
+
+      {data.type === 'output' && (
+        <div>
+          <label style={{ display: 'block', fontSize: 11, color: '#888', marginBottom: 4 }}>Output</label>
+          <textarea
+            value={(data as OutputNodeData).output || ''}
+            readOnly
+            placeholder="Output will appear here after run..."
+            rows={8}
+            style={{
+              width: '100%',
+              padding: '8px 10px',
+              background: '#0a0a15',
+              border: '1px solid #333',
+              borderRadius: 4,
+              color: '#22c55e',
+              fontSize: 12,
+              resize: 'vertical',
+              fontFamily: 'monospace',
+            }}
+          />
         </div>
       )}
 

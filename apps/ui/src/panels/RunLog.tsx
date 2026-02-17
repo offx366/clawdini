@@ -1,111 +1,149 @@
 // Run Log - bottom panel showing execution logs
 import { useGraphStore } from '../store';
-import { Play, Square, RotateCcw } from 'lucide-react';
+import { Play, Square, RotateCcw, ChevronDown, ChevronRight, MessageSquare } from 'lucide-react';
+import { useState } from 'react';
 
 export function RunLog() {
-  const { nodes, edges, isRunning, runId, setIsRunning, setRunId, clearRunLogs, getGraph, updateNode } = useGraphStore();
+  const { nodes, edges, isRunning, runId, runLogs, setIsRunning, setRunId, clearRunLogs, getGraph, updateNode, addRunLog } = useGraphStore();
+  const [showDebug, setShowDebug] = useState(true);
+
+  const addDebugLog = (message: string) => {
+    console.log('[DEBUG]', message);
+    addRunLog({ type: 'debug', nodeId: 'system', data: message, timestamp: Date.now() });
+  };
 
   const handleRun = async () => {
     console.log('[RunLog] === handleRun START ===');
-    console.log('[RunLog] nodes count:', nodes.length);
-    console.log('[RunLog] edges count:', edges.length);
+    addDebugLog('🚀 Starting workflow execution...');
+    addDebugLog(`📊 Graph: ${nodes.length} nodes, ${edges.length} edges`);
 
     const graph = getGraph();
     console.log('[RunLog] Graph nodes:', graph.nodes.map(n => ({ id: n.id, type: n.data.type, label: n.data.label })));
-    console.log('[RunLog] Graph edges:', graph.edges);
 
     if (graph.nodes.length === 0) {
-      console.log('[RunLog] No nodes to run!');
       alert('Add nodes first!');
       return;
     }
 
     clearRunLogs();
     setIsRunning(true);
+    addDebugLog('🔄 Initializing run...');
+
+    // Log each node configuration
+    for (const node of graph.nodes) {
+      const data = node.data;
+      if (data.type === 'input') {
+        addDebugLog(`📥 Input node "${data.label}": "${(data as any).prompt?.slice(0, 50) || '(empty)'}..."`);
+      } else if (data.type === 'agent') {
+        const agentId = (data as any).agentId || 'main';
+        const modelId = (data as any).modelId;
+        addDebugLog(`🤖 Agent node "${data.label}": agent=${agentId}${modelId ? `, model=${modelId}` : ' (default model)'}`);
+      } else if (data.type === 'merge') {
+        addDebugLog(`🔀 Merge node "${data.label}": mode=${(data as any).mode}`);
+      } else if (data.type === 'output') {
+        addDebugLog(`📤 Output node "${data.label}"`);
+      }
+    }
+
+    // Log edges
+    if (graph.edges.length > 0) {
+      addDebugLog(`🔗 Connections: ${graph.edges.map(e => `${e.source} → ${e.target}`).join(', ')}`);
+    }
 
     try {
-      console.log('[RunLog] Sending request to /api/run');
+      addDebugLog('📡 Sending request to server...');
       const response = await fetch('/api/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ graph }),
       });
 
-      console.log('[RunLog] Response status:', response.status);
+      addDebugLog(`📬 Server response status: ${response.status}`);
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('[RunLog] Error response:', errorText);
+        addDebugLog(`❌ Error: ${errorText}`);
         alert('Error: ' + errorText);
         setIsRunning(false);
         return;
       }
 
       const data = await response.json();
-      console.log('[RunLog] Response data:', data);
       const newRunId = data.runId;
 
       if (!newRunId) {
-        console.error('[RunLog] No runId in response!');
+        addDebugLog('❌ No runId returned from server!');
         alert('No runId returned!');
         setIsRunning(false);
         return;
       }
 
       setRunId(newRunId);
+      addDebugLog(`✅ Run started with ID: ${newRunId}`);
 
       // Update node statuses
       graph.nodes.forEach((node) => {
-        console.log('[RunLog] Setting node running:', node.id);
+        addDebugLog(`▶️ Starting node: ${node.data.label} (${node.data.type})`);
         updateNode(node.id, { status: 'running', output: '' });
       });
 
       // Connect to SSE
-      console.log('[RunLog] Connecting to SSE...');
+      addDebugLog('🔌 Connecting to event stream (SSE)...');
       const eventSource = new EventSource(`/api/run/${newRunId}/events`);
 
       eventSource.onmessage = (event) => {
-        console.log('[RunLog] SSE message:', event.data);
-        const data = JSON.parse(event.data);
+        const evtData = JSON.parse(event.data);
+        console.log('[RunLog] SSE message:', evtData);
 
-        // Ignore non-run events
-        if (!data || typeof data.type !== 'string') return;
+        if (!evtData || typeof evtData.type !== 'string') return;
 
-        if (data.type === 'nodeStarted') {
-          console.log('[RunLog] Node started:', data.nodeId);
-          updateNode(data.nodeId, { status: 'running' });
-        } else if (data.type === 'nodeDelta') {
-          // Pull latest state; the `nodes` captured by this closure can be stale.
-          const node = useGraphStore.getState().nodes.find((n) => n.id === data.nodeId);
-          if (node) {
-            const currentOutput = (node.data as { output?: string }).output || '';
-            updateNode(data.nodeId, { output: currentOutput + data.data });
+        if (evtData.type === 'nodeStarted') {
+          const node = graph.nodes.find(n => n.id === evtData.nodeId);
+          addDebugLog(`▶️ Node started: ${node?.data.label || evtData.nodeId}`);
+          updateNode(evtData.nodeId, { status: 'running' });
+        } else if (evtData.type === 'nodeDelta') {
+          // Show thinking indicator
+          const node = graph.nodes.find(n => n.id === evtData.nodeId);
+          const nodeLabel = node?.data.label || evtData.nodeId;
+          addDebugLog(`💭 ${nodeLabel}: receiving response... "${evtData.data?.slice(0, 30) || ''}..."`);
+
+          const currNode = useGraphStore.getState().nodes.find((n) => n.id === evtData.nodeId);
+          if (currNode) {
+            const currentOutput = (currNode.data as { output?: string }).output || '';
+            updateNode(evtData.nodeId, { output: currentOutput + evtData.data });
           }
-        } else if (data.type === 'nodeFinal') {
-          console.log('[RunLog] Node final:', data.nodeId);
-          updateNode(data.nodeId, { status: 'completed', output: data.data });
-        } else if (data.type === 'nodeError') {
-          console.log('[RunLog] Node error:', data.nodeId, data.error);
-          updateNode(data.nodeId, { status: 'error', output: data.error });
-        } else if (data.type === 'runCompleted') {
-          console.log('[RunLog] Run completed!');
+        } else if (evtData.type === 'nodeFinal') {
+          const node = graph.nodes.find(n => n.id === evtData.nodeId);
+          addDebugLog(`✅ Node completed: ${node?.data.label || evtData.nodeId}`);
+          addDebugLog(`📝 Output: "${evtData.data?.slice(0, 100) || ''}..."`);
+          updateNode(evtData.nodeId, { status: 'completed', output: evtData.data });
+        } else if (evtData.type === 'nodeError') {
+          const node = graph.nodes.find(n => n.id === evtData.nodeId);
+          addDebugLog(`❌ Node error: ${node?.data.label || evtData.nodeId}`);
+          addDebugLog(`💥 Error details: ${evtData.error}`);
+          updateNode(evtData.nodeId, { status: 'error', output: evtData.error });
+        } else if (evtData.type === 'runCompleted') {
+          addDebugLog('🏁 Workflow completed successfully!');
           setIsRunning(false);
           eventSource.close();
-        } else if (data.type === 'runError') {
-          console.log('[RunLog] Run error:', data.error);
-          alert('Run error: ' + data.error);
+        } else if (evtData.type === 'runError') {
+          addDebugLog(`❌ Workflow error: ${evtData.error}`);
+          alert('Run error: ' + evtData.error);
           setIsRunning(false);
           eventSource.close();
+        } else if (evtData.type === 'thinking') {
+          const node = graph.nodes.find(n => n.id === evtData.nodeId);
+          addDebugLog(`🧠 ${node?.data.label || evtData.nodeId}: ${evtData.content || 'thinking...'}`);
         }
       };
 
       eventSource.onerror = (err) => {
-        console.error('[RunLog] SSE error:', err);
+        addDebugLog(`⚠️ Event stream disconnected: ${err}`);
         setIsRunning(false);
         eventSource.close();
       };
     } catch (error) {
-      console.error('[RunLog] Catch error:', error);
+      addDebugLog(`❌ Exception: ${error}`);
       alert('Error: ' + error);
       setIsRunning(false);
     }
@@ -204,18 +242,57 @@ export function RunLog() {
           color: '#aaa',
         }}
       >
-        <div style={{ color: '#666', marginBottom: 4 }}>
-          💡 Check browser console (F12) for detailed debug logs
+        {/* Debug toggle */}
+        <div
+          onClick={() => setShowDebug(!showDebug)}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+            cursor: 'pointer',
+            color: '#888',
+            marginBottom: 8,
+          }}
+        >
+          {showDebug ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+          <MessageSquare className="w-3 h-3" />
+          <span>Debug Log (thinking process)</span>
         </div>
+
+        {showDebug && (
+          <div style={{ marginBottom: 8, maxHeight: 120, overflow: 'auto', background: '#0a0a1a', padding: 4, borderRadius: 4 }}>
+            {runLogs.map((log, i) => (
+              <div key={i} style={{
+                color: log.type === 'debug'
+                  ? (String(log.data).includes('❌') ? '#ef4444' :
+                     String(log.data).includes('✅') ? '#22c55e' :
+                     String(log.data).includes('🏁') ? '#22c55e' :
+                     String(log.data).includes('💭') ? '#f59e0b' :
+                     String(log.data).includes('🧠') ? '#a855f7' :
+                     '#888')
+                  : '#666',
+                marginBottom: 2,
+                fontSize: 9,
+              }}>
+                {log.data}
+              </div>
+            ))}
+            {runLogs.length === 0 && <span style={{ color: '#444' }}>Click RUN to see execution logs...</span>}
+          </div>
+        )}
+
         {nodes.length === 0 ? (
           <div style={{ color: '#666' }}>Click nodes in palette to add them, then click RUN</div>
         ) : (
           <div>
             {nodes.map(node => (
               <div key={node.id} style={{ marginBottom: 2 }}>
-                📍 {node.data.label} ({node.data.type})
+                {node.data.status === 'running' ? '⏳' :
+                 node.data.status === 'completed' ? '✅' :
+                 node.data.status === 'error' ? '❌' : '📍'} {node.data.label} ({node.data.type})
                 {node.data.type === 'input' && ` - "${(node.data as any).prompt?.slice(0, 30) || 'no prompt'}..."`}
                 {node.data.type === 'agent' && ` - agent: ${(node.data as any).agentId || 'none'}`}
+                {node.data.type === 'agent' && (node.data as any).modelId && `, model: ${(node.data as any).modelId}`}
               </div>
             ))}
             {edges.length > 0 && (

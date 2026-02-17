@@ -73,9 +73,10 @@ export interface ClawdiniGraph {
 export type RunStatus = 'pending' | 'running' | 'completed' | 'error' | 'cancelled';
 
 export interface RunNodeEvent {
-  type: 'nodeStarted' | 'nodeDelta' | 'nodeFinal' | 'nodeError' | 'nodeAborted';
+  type: 'nodeStarted' | 'nodeDelta' | 'nodeFinal' | 'nodeError' | 'nodeAborted' | 'thinking';
   nodeId: string;
   data?: string;
+  content?: string;
   error?: string;
 }
 
