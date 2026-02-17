@@ -25,6 +25,7 @@ interface GraphActions {
   addNode: (type: ClawdiniNode['data']['type'], position: { x: number; y: number }) => void;
   updateNode: (id: string, data: Partial<ClawdiniNode['data']>) => void;
   removeNode: (id: string) => void;
+  removeEdge: (id: string) => void;
   setNodes: (nodes: ClawdiniNode[]) => void;
   setEdges: (edges: ClawdiniEdge[]) => void;
   setSelectedNode: (id: string | null) => void;
@@ -98,6 +99,12 @@ export const useGraphStore = create<GraphState & GraphActions>()(
         set((state) => ({
           nodes: state.nodes.filter((node) => node.id !== id),
           edges: state.edges.filter((edge) => edge.source !== id && edge.target !== id),
+        }));
+      },
+
+      removeEdge: (id) => {
+        set((state) => ({
+          edges: state.edges.filter((edge) => edge.id !== id),
         }));
       },
 

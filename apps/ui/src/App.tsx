@@ -33,6 +33,7 @@ function App() {
     setAgents,
     setModels,
     addNode,
+    removeEdge,
   } = useGraphStore();
 
   // Convert store nodes to ReactFlow format
@@ -125,12 +126,18 @@ function App() {
   const onConnect = useCallback(
     (connection: Connection) => {
       if (connection.source && connection.target) {
+        // If connecting to a target that already has an incoming edge, remove the old one
+        const existingEdge = storeEdges.find(e => e.target === connection.target);
+        if (existingEdge) {
+          setEdges(storeEdges.filter(e => e.id !== existingEdge.id));
+        }
+
         const newEdge = {
           id: `${connection.source}-${connection.target}`,
           source: connection.source,
           target: connection.target,
         };
-        setEdges([...storeEdges, newEdge]);
+        setEdges([...storeEdges.filter(e => e.target !== connection.target), newEdge]);
       }
     },
     [storeEdges, setEdges]
