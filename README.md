@@ -2,7 +2,7 @@
 
 > Houdini/Nuke for agents - vertical node-based workflow orchestrator
 
-![Clawdini Workflow](screenshot.png)
+![Clawdini Workflow](screenshot_v2.png)
 
 A visual workflow editor for orchestrating AI agents using OpenClaw Gateway. Build complex agent pipelines by connecting nodes in a graph. Supports parallel execution, model selection, and intelligent merging.
 
