@@ -75,6 +75,17 @@ http://localhost:3000
 └─────────────────────────────────────────────────────────────┘
 ```
 
+## OpenClaw Gateway Integration
+
+To successfully execute agents and utilize the underlying LLMs, the Clawdini server establishes a persistent WebSocket connection to the OpenClaw Gateway (default `ws://127.0.0.1:18789`). The connection relies on **OpenClaw Protocol v3** and implements a secure, challenge-response authentication handshake:
+
+1. **Device Identity Generation**: Upon startup, the server looks for an identity file at `~/.openclaw/identity/device.json`. If it doesn't exist, the server generates a fresh `ed25519` keypair, hashes the raw public key to derive a unique `deviceId`, and securely saves it.
+2. **WebSocket Handshake**: The server connects to the Gateway and waits for a `connect.challenge` event containing a cryptographic `nonce`.
+3. **Challenge-Response Auth**: Using its private `ed25519` key, the server signs a heavily structured payload consisting of the required scopes, the nonce, device ID, and platform metadata.
+4. **Session Activation**: Clawdini dispatches a `connect` JSON-RPC method request carrying the generated signature, requesting full admin scopes (`operator.read, operator.write, operator.admin`). The gateway validates the signature and replies with a `hello-ok`, granting full access to agent endpoints.
+
+Once active, the server acts as an intelligent bridge, wrapping Agent/Merge node executions into `chat.send` WS payloads. Each node uses distinct `sessionKey` prefixes (e.g. `agent:main:clawdini:...`) to correctly route execution on the gateway side, parsing `delta` responses and continuously feeding the browser UI via Server-Sent Events (SSE).
+
 ## Node Types
 
 ### Input Node
