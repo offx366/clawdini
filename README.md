@@ -84,7 +84,15 @@ To successfully execute agents and utilize the underlying LLMs, the Clawdini ser
 3. **Challenge-Response Auth**: Using its private `ed25519` key, the server signs a heavily structured payload consisting of the required scopes, the nonce, device ID, and platform metadata.
 4. **Session Activation**: Clawdini dispatches a `connect` JSON-RPC method request carrying the generated signature, requesting full admin scopes (`operator.read, operator.write, operator.admin`). The gateway validates the signature and replies with a `hello-ok`, granting full access to agent endpoints.
 
-Once active, the server acts as an intelligent bridge, wrapping Agent/Merge node executions into `chat.send` WS payloads. Each node uses distinct `sessionKey` prefixes (e.g. `agent:main:clawdini:...`) to correctly route execution on the gateway side, parsing `delta` responses and continuously feeding the browser UI via Server-Sent Events (SSE).
+### Agent Identities & SOUL.md Synchronization
+
+It is important to understand how Clawdini nodes map to OpenClaw's internal architecture:
+
+- **Clawdini Nodes are NOT OpenClaw "Sub-Agents"**: According to OpenClaw documentation, built-in sub-agents run in a restricted context and **do not** load `SOUL.md`, `IDENTITY.md`, or `USER.md`. Because we want Clawdini to support fully personalized agents with their own identities, Clawdini executes each node as a **standard independent session** (e.g., `agent:<agentId>:clawdini:...`).
+- **Synchronized SOULs**: Because Clawdini runs them as standard sessions, OpenClaw **does** inject the `SOUL.md` file associated with the selected `agentId` (e.g., `~/.openclaw/agents/<agentId>/SOUL.md`). This means the agents running inside Clawdini perfectly synchronize with the base personalities, core truths, and restrictions defined in their OpenClaw `SOUL.md` files.
+- **Dynamic Roles**: If you select a specific role (like "Planner" or "Critic") in the Clawdini UI, Clawdini dynamically injects a system prompt payload *on top of* the existing OpenClaw `SOUL.md`. This allows you to combine OpenClaw's foundational identities with Clawdini's task-specific graph roles.
+
+Once active, the server acts as an intelligent bridge, wrapping Agent/Merge/Judge node executions into `chat.send` WS payloads. Each node uses distinct `sessionKey` prefixes (e.g., `agent:main:clawdini:...`) to correctly route execution on the gateway side, parsing `delta` responses and continuously feeding the browser UI via Server-Sent Events (SSE).
 
 ## Node Types
 
