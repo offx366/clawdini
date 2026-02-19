@@ -1,11 +1,25 @@
 // Graph and Node types for Clawdini
 
 // Node types
-export type NodeType = 'input' | 'agent' | 'merge' | 'judge' | 'output';
+export type NodeType = 'input' | 'agent' | 'merge' | 'judge' | 'output' | 'switch' | 'extract' | 'invoke' | 'foreach';
+
+// Payload structure that flows between nodes
+export interface NodePayload {
+  text: string;
+  json?: any;
+  meta: {
+    modelId?: string;
+    agentId?: string;
+    latencyMs?: number;
+    sessionKey?: string;
+  };
+}
 
 // Base node data
 export interface BaseNodeData {
   label: string;
+  status?: 'idle' | 'running' | 'completed' | 'error';
+  payload?: NodePayload;
 }
 
 // InputNode - text prompt input
@@ -20,8 +34,6 @@ export interface AgentNodeData extends BaseNodeData {
   agentId: string;
   modelId?: string;
   role?: 'planner' | 'critic' | 'researcher' | 'operator' | 'custom';
-  output: string;
-  status: 'idle' | 'running' | 'completed' | 'error';
 }
 
 // MergeNode - combines outputs
@@ -30,8 +42,6 @@ export interface MergeNodeData extends BaseNodeData {
   mode: 'concat' | 'llm' | 'consensus';
   modelId?: string; // optional model for LLM merge
   prompt?: string; // custom prompt for LLM merge
-  output: string;
-  status: 'idle' | 'running' | 'completed' | 'error';
 }
 
 // JudgeNode - evaluates inputs and outputs JSON decision
@@ -39,17 +49,45 @@ export interface JudgeNodeData extends BaseNodeData {
   type: 'judge';
   modelId?: string;
   criteria: string;
-  output: string; // JSON output
-  status: 'idle' | 'running' | 'completed' | 'error';
 }
 
 // OutputNode - final output
 export interface OutputNodeData extends BaseNodeData {
   type: 'output';
-  output: string;
 }
 
-export type ClawdiniNodeData = InputNodeData | AgentNodeData | MergeNodeData | JudgeNodeData | OutputNodeData;
+export interface SwitchRule {
+  id: string;
+  condition: string; // Regex pattern for text match
+}
+
+// SwitchNode - branches flow based on regex matches
+export interface SwitchNodeData extends BaseNodeData {
+  type: 'switch';
+  rules: SwitchRule[];
+}
+
+// ExtractNode - forces JSON extraction
+export interface ExtractNodeData extends BaseNodeData {
+  type: 'extract';
+  schema: string;
+  modelId?: string;
+}
+
+// InvokeNode - executes a real environment command via OpenClaw
+export interface InvokeNodeData extends BaseNodeData {
+  type: 'invoke';
+  commandName: string;      // e.g. system.run, browser.goto
+  payloadTemplate?: string; // JSON template for the request payload
+}
+
+// ForEachNode - spawns parallel sub-graphs for each item in a JSON array
+export interface ForEachNodeData extends BaseNodeData {
+  type: 'foreach';
+  arrayPath?: string;       // Optional JSONPath or key to extract array from payload
+}
+
+export type ClawdiniNodeData = InputNodeData | AgentNodeData | MergeNodeData | JudgeNodeData | OutputNodeData | SwitchNodeData | ExtractNodeData | InvokeNodeData | ForEachNodeData;
 
 // Position for nodes
 export interface Position {
@@ -68,7 +106,9 @@ export interface ClawdiniNode {
 export interface ClawdiniEdge {
   id: string;
   source: string;
+  sourceHandle?: string;
   target: string;
+  targetHandle?: string;
   selected?: boolean;
 }
 
@@ -88,7 +128,7 @@ export type RunStatus = 'pending' | 'running' | 'completed' | 'error' | 'cancell
 export interface RunNodeEvent {
   type: 'nodeStarted' | 'nodeDelta' | 'nodeFinal' | 'nodeError' | 'nodeAborted' | 'thinking';
   nodeId: string;
-  data?: string;
+  data?: NodePayload;
   content?: string;
   error?: string;
 }

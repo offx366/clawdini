@@ -6,24 +6,38 @@ import {
   AgentNodeData,
   MergeNodeData,
   OutputNodeData,
+  SwitchNodeData,
+  ExtractNodeData,
+  InvokeNodeData,
+  ForEachNodeData,
 } from '@clawdini/types';
-import { Bot, FileInput, GitMerge, FileOutput, Loader2, CheckCircle, XCircle } from 'lucide-react';
+import { Bot, FileInput, GitMerge, FileOutput, Loader2, CheckCircle, XCircle, GitBranch, Scale, Database, Zap, Repeat } from 'lucide-react';
 
 const nodeStyles: Record<string, { bg: string; border: string; glow: string }> = {
   input: { bg: '#0f2440', border: '#3b82f6', glow: 'rgba(59,130,246,0.15)' },
   agent: { bg: '#1a1040', border: '#8b5cf6', glow: 'rgba(139,92,246,0.15)' },
   merge: { bg: '#0f2818', border: '#22c55e', glow: 'rgba(34,197,94,0.15)' },
+  judge: { bg: '#2a2408', border: '#eab308', glow: 'rgba(234,179,8,0.15)' },
+  switch: { bg: '#2a0a18', border: '#ec4899', glow: 'rgba(236,72,153,0.15)' },
+  extract: { bg: '#082f2a', border: '#06b6d4', glow: 'rgba(6,182,212,0.15)' },
+  invoke: { bg: '#2a0a0a', border: '#ef4444', glow: 'rgba(239,68,68,0.15)' },
+  foreach: { bg: '#2a1400', border: '#f97316', glow: 'rgba(249,115,22,0.15)' },
   output: { bg: '#2a1a08', border: '#f59e0b', glow: 'rgba(245,158,11,0.15)' },
 };
 
-const icons: Record<string, React.ComponentType<{ size?: number; style?: React.CSSProperties }>> = {
+const icons: Record<string, React.ElementType> = {
   input: FileInput,
   agent: Bot,
   merge: GitMerge,
+  judge: Scale,
+  switch: GitBranch,
+  extract: Database,
+  invoke: Zap,
+  foreach: Repeat,
   output: FileOutput,
 };
 
-const statusConfig: Record<string, { icon: React.ComponentType<{ size?: number; style?: React.CSSProperties }>; color: string }> = {
+const statusConfig: Record<string, { icon: React.ElementType; color: string }> = {
   idle: { icon: CheckCircle, color: '#555' },
   running: { icon: Loader2, color: '#f59e0b' },
   completed: { icon: CheckCircle, color: '#22c55e' },
@@ -31,7 +45,7 @@ const statusConfig: Record<string, { icon: React.ComponentType<{ size?: number; 
 };
 
 function ClawdiniNode({ data, selected, id }: NodeProps) {
-  const nodeData = data as unknown as InputNodeData | AgentNodeData | MergeNodeData | OutputNodeData;
+  const nodeData = data as unknown as InputNodeData | AgentNodeData | MergeNodeData | OutputNodeData | SwitchNodeData | ExtractNodeData | InvokeNodeData | ForEachNodeData;
   const type = nodeData.type;
   const style = nodeStyles[type] || nodeStyles.input;
   const Icon = icons[type] || FileInput;
@@ -143,6 +157,39 @@ function ClawdiniNode({ data, selected, id }: NodeProps) {
         </div>
       )}
 
+      {type === 'switch' && (
+        <div style={{ fontSize: 10, color: '#8888aa', display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+          {(nodeData as SwitchNodeData).rules?.map((r, i) => (
+            <span key={r.id} style={{ background: '#ec489920', color: '#ec4899', padding: '2px 6px', borderRadius: 4, fontSize: 9 }}>
+              {r.condition || '.*'}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {type === 'extract' && (
+        <div style={{ fontSize: 10, color: '#8888aa', display: 'flex', flexDirection: 'column', gap: 2 }}>
+          Extraction Schema
+          {(nodeData as ExtractNodeData).modelId && (
+            <div style={{ fontSize: 9, color: '#555578' }}>
+              🧠 {(nodeData as ExtractNodeData).modelId!.split('/').pop()}
+            </div>
+          )}
+        </div>
+      )}
+
+      {type === 'invoke' && (
+        <div style={{ fontSize: 10, color: '#8888aa', display: 'flex', flexDirection: 'column', gap: 2 }}>
+          API: <span style={{ color: '#ef4444' }}>{(nodeData as InvokeNodeData).commandName || 'not set'}</span>
+        </div>
+      )}
+
+      {type === 'foreach' && (
+        <div style={{ fontSize: 10, color: '#8888aa', display: 'flex', flexDirection: 'column', gap: 2 }}>
+          Array: <span style={{ color: '#f97316' }}>{(nodeData as ForEachNodeData).arrayPath || 'Root Array'}</span>
+        </div>
+      )}
+
       {/* Output preview */}
       {'output' in nodeData && nodeData.output && (
         <div
@@ -165,7 +212,26 @@ function ClawdiniNode({ data, selected, id }: NodeProps) {
       )}
 
       {/* Output handle (bottom) */}
-      {type !== 'output' && (
+      {type === 'switch' ? (
+        <div style={{ position: 'relative', marginTop: 10, height: 10 }}>
+          {(nodeData as SwitchNodeData).rules?.map((rule, i, arr) => (
+            <Handle
+              key={rule.id}
+              type="source"
+              id={rule.id}
+              position={Position.Bottom}
+              style={{
+                background: style.border,
+                width: 10,
+                height: 10,
+                border: '2px solid #0a0a1e',
+                left: `${((i + 1) / (arr.length + 1)) * 100}%`,
+                transform: 'translateX(-50%)',
+              }}
+            />
+          ))}
+        </div>
+      ) : type !== 'output' && (
         <Handle
           type="source"
           position={Position.Bottom}

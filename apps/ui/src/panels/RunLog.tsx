@@ -15,7 +15,7 @@ export function RunLog() {
 
   const addDebugLog = (message: string) => {
     console.log('[DEBUG]', message);
-    addRunLog({ type: 'debug', nodeId: 'system', data: message, timestamp: Date.now() });
+    addRunLog({ type: 'debug', nodeId: 'system', data: message, timestamp: Date.now() } as any);
   };
 
   const handleRun = async () => {
@@ -86,7 +86,7 @@ export function RunLog() {
 
       graph.nodes.forEach((node) => {
         addDebugLog(`▶️ Starting node: ${node.data.label} (${node.data.type})`);
-        updateNode(node.id, { status: 'running', output: '' });
+        updateNode(node.id, { status: 'running', payload: { text: '', meta: {} } });
       });
 
       addDebugLog('🔌 Connecting to event stream (SSE)...');
@@ -103,23 +103,26 @@ export function RunLog() {
         } else if (evtData.type === 'nodeDelta') {
           const node = graph.nodes.find(n => n.id === evtData.nodeId);
           const nodeLabel = node?.data.label || evtData.nodeId;
-          addDebugLog(`💭 ${nodeLabel}: receiving response... "${evtData.data?.slice(0, 30) || ''}..."`);
+          const textDelta = evtData.data?.text || '';
+          addDebugLog(`💭 ${nodeLabel}: receiving response... "${textDelta.slice(0, 30)}..."`);
 
           const currNode = useGraphStore.getState().nodes.find((n) => n.id === evtData.nodeId);
           if (currNode) {
-            const currentOutput = (currNode.data as { output?: string }).output || '';
-            updateNode(evtData.nodeId, { output: currentOutput + evtData.data });
+            const currentPayload = (currNode.data as any).payload || { text: '', meta: {} };
+            updateNode(evtData.nodeId, {
+              payload: { ...currentPayload, text: currentPayload.text + textDelta }
+            });
           }
         } else if (evtData.type === 'nodeFinal') {
           const node = graph.nodes.find(n => n.id === evtData.nodeId);
           addDebugLog(`✅ Node completed: ${node?.data.label || evtData.nodeId}`);
-          addDebugLog(`📝 Output: "${evtData.data?.slice(0, 100) || ''}..."`);
-          updateNode(evtData.nodeId, { status: 'completed', output: evtData.data });
+          addDebugLog(`📝 Output: "${evtData.data?.text?.slice(0, 100) || ''}..."`);
+          updateNode(evtData.nodeId, { status: 'completed', payload: evtData.data });
         } else if (evtData.type === 'nodeError') {
           const node = graph.nodes.find(n => n.id === evtData.nodeId);
           addDebugLog(`❌ Node error: ${node?.data.label || evtData.nodeId}`);
           addDebugLog(`💥 Error details: ${evtData.error}`);
-          updateNode(evtData.nodeId, { status: 'error', output: evtData.error });
+          updateNode(evtData.nodeId, { status: 'error', payload: { text: evtData.error || '', meta: {} } });
         } else if (evtData.type === 'runCompleted') {
           addDebugLog('🏁 Workflow completed successfully!');
           setIsRunning(false);
@@ -259,16 +262,14 @@ export function RunLog() {
         {showDebug && (
           <div
             style={{
-              marginBottom: 6,
-              maxHeight: 140,
+              flex: 1,
               overflow: 'auto',
-              background: 'rgba(0,0,0,0.2)',
-              padding: 6,
-              borderRadius: 6,
-              border: '1px solid var(--border-subtle)',
+              display: 'flex',
+              flexDirection: 'column',
+              fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
             }}
           >
-            {runLogs.map((log, i) => (
+            {runLogs.map((log: any, i) => (
               <div
                 key={i}
                 style={{
@@ -279,7 +280,7 @@ export function RunLog() {
                   animation: 'fadeIn 0.2s ease',
                 }}
               >
-                {log.data}
+                {log.data && typeof log.data === 'string' ? log.data : ''}
               </div>
             ))}
             {runLogs.length === 0 && (

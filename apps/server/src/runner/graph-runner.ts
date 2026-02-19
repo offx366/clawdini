@@ -7,16 +7,20 @@ import type {
   AgentNodeData,
   MergeNodeData,
   InputNodeData,
-  OutputNodeData,
   RunEvent,
   RunNodeEvent,
+  NodePayload,
+  SwitchNodeData,
+  ExtractNodeData,
+  InvokeNodeData,
+  ForEachNodeData,
 } from '@clawdini/types';
 import { GatewayClient } from '../gateway/client.js';
 
 export type EventHandler = (event: RunEvent) => void;
 
 interface NodeOutput {
-  output: string;
+  output: NodePayload;
   status: 'completed' | 'error';
   error?: string;
 }
@@ -64,12 +68,35 @@ function groupByLevel(nodes: ClawdiniNode[], edges: { source: string; target: st
   return levels;
 }
 
+// Extract subgraph from startNodeId
+function getSubgraph(graph: ClawdiniGraph, startNodeId: string): ClawdiniGraph {
+  const descendantIds = new Set<string>();
+  const queue = [startNodeId];
+  while (queue.length > 0) {
+    const curr = queue.shift()!;
+    const outgoing = graph.edges.filter(e => e.source === curr).map(e => e.target);
+    for (const tgt of outgoing) {
+      if (!descendantIds.has(tgt)) {
+        descendantIds.add(tgt);
+        queue.push(tgt);
+      }
+    }
+  }
+  return {
+    ...graph,
+    id: `${graph.id}-sub-${startNodeId}`,
+    nodes: graph.nodes.filter(n => descendantIds.has(n.id)),
+    edges: graph.edges.filter(e => descendantIds.has(e.source) && descendantIds.has(e.target))
+  };
+}
+
 export class GraphRunner {
   private gatewayClient: GatewayClient;
   private runId: string;
   private eventHandler: EventHandler;
   private nodeOutputs = new Map<string, NodeOutput>();
   private runningNodes = new Map<string, { runId: string; sessionKey: string }>();
+  private disabledEdges = new Set<string>();
   private cancelled = false;
 
   constructor(gatewayClient: GatewayClient, eventHandler: EventHandler) {
@@ -83,6 +110,7 @@ export class GraphRunner {
     this.cancelled = false;
     this.nodeOutputs.clear();
     this.runningNodes.clear();
+    this.disabledEdges.clear();
 
     // Give SSE clients time to connect
     await new Promise(resolve => setTimeout(resolve, 500));
@@ -123,11 +151,26 @@ export class GraphRunner {
 
     const data = node.data as ClawdiniNodeData;
 
+    const inputEdges = graph.edges.filter((e) => e.target === nodeId);
+    if (inputEdges.length > 0) {
+      const allDisabled = inputEdges.every((e) => this.disabledEdges.has(e.id));
+      if (allDisabled) {
+        console.log(`[Runner] Skipping node ${nodeId} (all input paths halted)`);
+        const outgoingEdges = graph.edges.filter((e) => e.source === nodeId);
+        for (const edge of outgoingEdges) {
+          this.disabledEdges.add(edge.id);
+        }
+        this.emitEvent({ type: 'nodeAborted', nodeId });
+        this.nodeOutputs.set(nodeId, { output: { text: 'Halted (Skipped)', meta: {} }, status: 'completed' });
+        return;
+      }
+    }
+
     // Emit started event
-    this.emitEvent({ type: 'nodeStarted', nodeId, data: '' });
+    this.emitEvent({ type: 'nodeStarted', nodeId, data: { text: '', meta: {} } });
 
     try {
-      let output = '';
+      let output: NodePayload = { text: '', meta: {} };
 
       switch (data.type) {
         case 'input':
@@ -139,6 +182,18 @@ export class GraphRunner {
         case 'merge':
           output = await this.executeMergeNode(graph, nodeId, data as MergeNodeData);
           break;
+        case 'switch':
+          output = await this.executeSwitchNode(graph, node, data as SwitchNodeData);
+          break;
+        case 'extract':
+          output = await this.executeExtractNode(graph, nodeId, data as ExtractNodeData);
+          break;
+        case 'invoke':
+          output = await this.executeInvokeNode(graph, nodeId, data as InvokeNodeData);
+          break;
+        case 'foreach':
+          output = await this.executeForEachNode(graph, nodeId, data as ForEachNodeData);
+          break;
         case 'judge':
           output = await this.executeJudgeNode(graph, nodeId, data as any);
           break;
@@ -147,19 +202,19 @@ export class GraphRunner {
           break;
       }
 
-      console.log('[Runner] Node output:', nodeId, output?.slice(0, 50));
+      console.log('[Runner] Node output:', nodeId, output?.text?.slice(0, 50));
       this.nodeOutputs.set(nodeId, { output, status: 'completed' });
       this.emitEvent({ type: 'nodeFinal', nodeId, data: output });
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       console.error('[Runner] Node error:', nodeId, errorMsg);
-      this.nodeOutputs.set(nodeId, { output: '', status: 'error', error: errorMsg });
+      this.nodeOutputs.set(nodeId, { output: { text: '', meta: {} }, status: 'error', error: errorMsg });
       this.emitEvent({ type: 'nodeError', nodeId, error: errorMsg });
     }
   }
 
-  private async executeInputNode(data: InputNodeData): Promise<string> {
-    return data.prompt || '';
+  private async executeInputNode(data: InputNodeData): Promise<NodePayload> {
+    return { text: data.prompt || '', meta: {} };
   }
 
   private async executeAgentNode(
@@ -167,7 +222,7 @@ export class GraphRunner {
     node: ClawdiniNode,
     data: AgentNodeData,
     globalInput?: string
-  ): Promise<string> {
+  ): Promise<NodePayload> {
     const nodeId = node.id;
 
     // Get input from connected nodes
@@ -182,7 +237,7 @@ export class GraphRunner {
         const sourceOutput = this.nodeOutputs.get(edge.source);
         console.log('[Runner] Source output for', edge.source, sourceOutput?.status);
         if (sourceOutput && sourceOutput.status === 'completed') {
-          sourceOutputs.push(sourceOutput.output);
+          sourceOutputs.push(sourceOutput.output.text);
         }
       }
       inputText = sourceOutputs.join('\n\n');
@@ -270,7 +325,7 @@ export class GraphRunner {
             if (text.startsWith(fullOutput)) {
               const delta = text.slice(fullOutput.length);
               if (delta) {
-                this.emitEvent({ type: 'nodeDelta', nodeId: nodeIdCopy, data: delta });
+                this.emitEvent({ type: 'nodeDelta', nodeId: nodeIdCopy, data: { text: delta, meta: {} } });
                 // Also emit thinking event for detailed debug
                 this.emitEvent({ type: 'thinking', nodeId: nodeIdCopy, content: delta.slice(0, 50) });
               }
@@ -278,7 +333,7 @@ export class GraphRunner {
             } else {
               // Unexpected non-prefix update; fall back to replacing.
               fullOutput = text;
-              this.emitEvent({ type: 'nodeDelta', nodeId: nodeIdCopy, data: text });
+              this.emitEvent({ type: 'nodeDelta', nodeId: nodeIdCopy, data: { text, meta: {} } });
             }
           }
           if (event.state === 'final' && !finished) {
@@ -333,14 +388,17 @@ export class GraphRunner {
         ),
       ]);
 
-      return fullOutput;
+      return {
+        text: fullOutput,
+        meta: { agentId, modelId: data.modelId, sessionKey }
+      };
     } finally {
       this.gatewayClient.off('chat', chatHandler);
       this.runningNodes.delete(nodeId);
     }
   }
 
-  private async executeMergeNode(graph: ClawdiniGraph, nodeId: string, data: MergeNodeData): Promise<string> {
+  private async executeMergeNode(graph: ClawdiniGraph, nodeId: string, data: MergeNodeData): Promise<NodePayload> {
     // Get inputs from connected nodes
     const inputEdges = graph.edges.filter((e) => e.target === nodeId);
     const sourceOutputs: { id: string; output: string }[] = [];
@@ -348,20 +406,23 @@ export class GraphRunner {
     for (const edge of inputEdges) {
       const sourceOutput = this.nodeOutputs.get(edge.source);
       if (sourceOutput && sourceOutput.status === 'completed') {
-        sourceOutputs.push({ id: edge.source, output: sourceOutput.output });
+        sourceOutputs.push({ id: edge.source, output: sourceOutput.output.text });
       }
     }
 
     if (data.mode === 'concat') {
-      return sourceOutputs
-        .map((item, i) => `=== Source ${i + 1} ===\n${item.output}\n`)
-        .join('\n');
+      return {
+        text: sourceOutputs
+          .map((item, i) => `=== Source ${i + 1} ===\n${item.output}\n`)
+          .join('\n'),
+        meta: {}
+      };
     } else {
       let mergePrompt = '';
 
       if (data.mode === 'consensus') {
-        if (sourceOutputs.length === 0) return '';
-        if (sourceOutputs.length === 1) return sourceOutputs[0].output;
+        if (sourceOutputs.length === 0) return { text: '', meta: {} };
+        if (sourceOutputs.length === 1) return { text: sourceOutputs[0].output, meta: {} };
 
         const inputsText = sourceOutputs
           .map((item, i) => `--- Participant ${i + 1} ---\n${item.output}`)
@@ -382,8 +443,8 @@ ${inputsText}
 Provide the Meeting Minutes:`;
       } else {
         // Default LLM Merge
-        if (sourceOutputs.length === 0) return '';
-        if (sourceOutputs.length === 1) return sourceOutputs[0].output;
+        if (sourceOutputs.length === 0) return { text: '', meta: {} };
+        if (sourceOutputs.length === 1) return { text: sourceOutputs[0].output, meta: {} };
 
         // Build the merge prompt
         if (data.prompt) {
@@ -435,12 +496,15 @@ Provide a comprehensive, well-structured response that combines the above inputs
       const result = await this.gatewayClient.chatSend(sessionKey, mergePrompt);
 
       // Wait for the response
-      const mergedOutput = await this.waitForMergeResult(nodeId, sessionKey, result.runId);
-      return mergedOutput;
+      const mergedOutputText = await this.waitForMergeResult(nodeId, sessionKey, result.runId);
+      return {
+        text: mergedOutputText,
+        meta: { modelId: data.modelId, sessionKey }
+      };
     }
   }
 
-  private async executeJudgeNode(graph: ClawdiniGraph, nodeId: string, data: any): Promise<string> {
+  private async executeJudgeNode(graph: ClawdiniGraph, nodeId: string, data: any): Promise<NodePayload> {
     // Get inputs from connected nodes
     const inputEdges = graph.edges.filter((e) => e.target === nodeId);
     const sourceOutputs: string[] = [];
@@ -448,7 +512,7 @@ Provide a comprehensive, well-structured response that combines the above inputs
     for (const edge of inputEdges) {
       const sourceOutput = this.nodeOutputs.get(edge.source);
       if (sourceOutput && sourceOutput.status === 'completed') {
-        sourceOutputs.push(sourceOutput.output);
+        sourceOutputs.push(sourceOutput.output.text);
       }
     }
 
@@ -488,20 +552,250 @@ OUTPUT RAW JSON:`;
 
     const result = await this.gatewayClient.chatSend(sessionKey, judgePrompt);
     const output = await this.waitForMergeResult(nodeId, sessionKey, result.runId);
-
     // Try to ensure clean JSON output
     try {
       let cleanOutput = output.trim();
       if (cleanOutput.startsWith('```json')) {
         cleanOutput = cleanOutput.replace(/```json\n?/, '').replace(/```\n?$/, '');
       }
-      // Just to validate it parses
-      JSON.parse(cleanOutput);
-      return cleanOutput;
+      const parsed = JSON.parse(cleanOutput);
+      return {
+        text: cleanOutput,
+        json: parsed,
+        meta: { sessionKey, modelId: data.modelId }
+      };
     } catch (e) {
       console.log('[Runner] Judge output was not valid JSON, returning raw.');
-      return output;
+      return { text: output, meta: { sessionKey, modelId: data.modelId } };
     }
+  }
+
+  private async executeSwitchNode(graph: ClawdiniGraph, node: ClawdiniNode, data: SwitchNodeData): Promise<NodePayload> {
+    const inputEdges = graph.edges.filter((e) => e.target === node.id);
+    let inputText = '';
+    let sessionKey = uuidv4();
+
+    if (inputEdges.length > 0) {
+      const sourceOutputs: NodePayload[] = [];
+      for (const edge of inputEdges) {
+        if (this.disabledEdges.has(edge.id)) continue;
+        const sourceOutput = this.nodeOutputs.get(edge.source);
+        if (sourceOutput && sourceOutput.status === 'completed') {
+          sourceOutputs.push(sourceOutput.output);
+          if (sourceOutput.output.meta.sessionKey) {
+            sessionKey = sourceOutput.output.meta.sessionKey;
+          }
+        }
+      }
+      inputText = sourceOutputs.map(o => o.text).join('\n\n');
+    }
+
+    const matchingRuleIds: string[] = [];
+    for (const rule of data.rules || []) {
+      try {
+        const regex = new RegExp(rule.condition);
+        if (regex.test(inputText)) matchingRuleIds.push(rule.id);
+      } catch (e) {
+        console.error('Invalid regex', rule.condition);
+      }
+    }
+
+    const outgoingEdges = graph.edges.filter((e) => e.source === node.id);
+
+    if (matchingRuleIds.length === 0) {
+      for (const edge of outgoingEdges) {
+        this.disabledEdges.add(edge.id);
+      }
+      return { text: 'Halted (No conditions matched)', meta: { sessionKey } };
+    } else {
+      let activeCount = 0;
+      for (const edge of outgoingEdges) {
+        if (!matchingRuleIds.includes(edge.sourceHandle || '')) {
+          this.disabledEdges.add(edge.id);
+        } else {
+          activeCount++;
+        }
+      }
+      return { text: `Flow routed to ${activeCount} branches`, meta: { sessionKey } };
+    }
+  }
+
+  private async executeExtractNode(graph: ClawdiniGraph, nodeId: string, data: ExtractNodeData): Promise<NodePayload> {
+    const inputEdges = graph.edges.filter((e) => e.target === nodeId);
+    const sourceOutputs: string[] = [];
+
+    for (const edge of inputEdges) {
+      if (this.disabledEdges.has(edge.id)) continue;
+      const sourceOutput = this.nodeOutputs.get(edge.source);
+      if (sourceOutput && sourceOutput.status === 'completed') {
+        sourceOutputs.push(sourceOutput.output.text);
+      }
+    }
+
+    const inputText = sourceOutputs.join('\\n\\n');
+    const schema = data.schema || '{}';
+
+    const extractPrompt = `You are a strict data extraction AI. You must extract information from the input text and format it EXACTLY according to the JSON schema/structure provided below.
+Your output MUST be a valid JSON object. Do NOT wrap it in markdown codeblocks (like \`\`\`json). Output raw JSON only.
+
+--- TARGET SCHEMA / STRUCTURE ---
+${schema}
+
+--- INPUT TEXT ---
+${inputText}
+
+OUTPUT RAW JSON:`;
+
+    const sessionKey = `agent:main:extract:${this.runId}:${nodeId}`;
+
+    try {
+      await this.gatewayClient.sessionsReset(sessionKey);
+    } catch (e) {
+      console.log('[Runner] Extract session reset error:', e);
+    }
+
+    if (data.modelId) {
+      await this.gatewayClient.sessionsPatch(sessionKey, { model: data.modelId });
+    }
+
+    const result = await this.gatewayClient.chatSend(sessionKey, extractPrompt);
+    const output = await this.waitForMergeResult(nodeId, sessionKey, result.runId);
+
+    try {
+      let cleanOutput = output.trim();
+      if (cleanOutput.startsWith('```json')) {
+        cleanOutput = cleanOutput.replace(/```json\\n?/, '').replace(/```\\n?$/, '');
+      }
+      const parsed = JSON.parse(cleanOutput);
+      return {
+        text: 'Successfully extracted JSON data.',
+        json: parsed,
+        meta: { sessionKey, modelId: data.modelId }
+      };
+    } catch (e) {
+      console.error('[Runner] Extract output was not valid JSON, returning raw.');
+      return { text: output, meta: { sessionKey, modelId: data.modelId } };
+    }
+  }
+
+  private async executeInvokeNode(graph: ClawdiniGraph, nodeId: string, data: InvokeNodeData): Promise<NodePayload> {
+    const inputEdges = graph.edges.filter((e) => e.target === nodeId);
+    const sourceOutputs: string[] = [];
+
+    for (const edge of inputEdges) {
+      if (this.disabledEdges.has(edge.id)) continue;
+      const sourceOutput = this.nodeOutputs.get(edge.source);
+      if (sourceOutput && sourceOutput.status === 'completed') {
+        sourceOutputs.push(sourceOutput.output.text);
+      }
+    }
+
+    const inputText = sourceOutputs.join('\\n\\n');
+    let rawPayload = data.payloadTemplate || '';
+
+    // Replace {INPUT} with the actual input text (escaped for JSON)
+    const escapedInputText = inputText.replace(/\\\\/g, '\\\\\\\\').replace(/"/g, '\\\\"').replace(/\\n/g, '\\\\n');
+    rawPayload = rawPayload.replace(/\\{INPUT\\}/g, escapedInputText);
+
+    let parsedPayload: any = {};
+    if (rawPayload.trim()) {
+      try {
+        parsedPayload = JSON.parse(rawPayload);
+      } catch (e) {
+        console.warn('[Runner] Invoke payload template is not valid JSON string after replacement.', e);
+        parsedPayload = { payload: rawPayload };
+      }
+    }
+
+    const sessionKey = `invoke:${this.runId}:${nodeId}`;
+
+    try {
+      console.log(`[Runner] Invoking OpenClaw capability: ${data.commandName}`, parsedPayload);
+      const result = await this.gatewayClient.request<any>(data.commandName, parsedPayload);
+
+      const responseText = typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result);
+
+      return {
+        text: responseText,
+        json: typeof result === 'object' ? result : undefined,
+        meta: { sessionKey }
+      };
+    } catch (e) {
+      const errorMsg = e instanceof Error ? e.message : String(e);
+      console.error(`[Runner] Invoke error on ${data.commandName}:`, errorMsg);
+      throw new Error(`Failed to invoke ${data.commandName}: ${errorMsg}`);
+    }
+  }
+
+  private async executeForEachNode(graph: ClawdiniGraph, nodeId: string, data: ForEachNodeData): Promise<NodePayload> {
+    const inputEdges = graph.edges.filter((e) => e.target === nodeId);
+    let inputText = '';
+    let parsedJson: any = null;
+    let sessionKey = uuidv4();
+
+    for (const edge of inputEdges) {
+      if (this.disabledEdges.has(edge.id)) continue;
+      const sourceOutput = this.nodeOutputs.get(edge.source);
+      if (sourceOutput && sourceOutput.status === 'completed') {
+        const payload = sourceOutput.output;
+        inputText += payload.text + '\\n';
+        if (payload.json) parsedJson = payload.json;
+        if (payload.meta?.sessionKey) sessionKey = payload.meta.sessionKey;
+      }
+    }
+
+    if (!parsedJson) {
+      try {
+        parsedJson = JSON.parse(inputText);
+      } catch (e) {
+        parsedJson = [];
+      }
+    }
+
+    let targetArray: any[] = [];
+    if (data.arrayPath && parsedJson) {
+      const parts = data.arrayPath.split('.');
+      let current = parsedJson;
+      for (const part of parts) {
+        if (current && typeof current === 'object') {
+          current = current[part];
+        } else {
+          current = null;
+          break;
+        }
+      }
+      if (Array.isArray(current)) targetArray = current;
+    } else if (Array.isArray(parsedJson)) {
+      targetArray = parsedJson;
+    }
+
+    if (!Array.isArray(targetArray) || targetArray.length === 0) {
+      const outgoingEdges = graph.edges.filter((e) => e.source === nodeId);
+      for (const edge of outgoingEdges) {
+        this.disabledEdges.add(edge.id);
+      }
+      return { text: 'Halted (No Array Found)', meta: { sessionKey } };
+    }
+
+    const subGraph = getSubgraph(graph, nodeId);
+
+    // Disable outgoing edges in THIS runner so main execution doesn't run the subgraph
+    const outgoingEdges = graph.edges.filter((e) => e.source === nodeId);
+    for (const edge of outgoingEdges) {
+      this.disabledEdges.add(edge.id);
+    }
+
+    console.log(`[Runner] ForEach spawning ${targetArray.length} parallel runs for subgraph.`);
+
+    const promises = targetArray.map((item) => {
+      const subRunner = new GraphRunner(this.gatewayClient, this.eventHandler);
+      const itemStr = typeof item === 'object' ? JSON.stringify(item) : String(item);
+      return subRunner.run(subGraph, itemStr);
+    });
+
+    await Promise.all(promises);
+
+    return { text: `Completed ${targetArray.length} parallel sub-executions.`, meta: { sessionKey } };
   }
 
   private waitForMergeResult(nodeId: string, sessionKey: string, runId: string): Promise<string> {
@@ -554,7 +848,7 @@ OUTPUT RAW JSON:`;
               if (text.startsWith(fullOutput)) {
                 const delta = text.slice(fullOutput.length);
                 if (delta) {
-                  this.emitEvent({ type: 'nodeDelta', nodeId, data: delta });
+                  this.emitEvent({ type: 'nodeDelta', nodeId, data: { text: delta, meta: {} } });
                   this.emitEvent({ type: 'thinking', nodeId, content: `🔀 Merging: ${delta.slice(0, 50)}` });
                 }
                 fullOutput = text;
@@ -562,7 +856,7 @@ OUTPUT RAW JSON:`;
                 // Non-prefix update; fall back to replacing by clearing and re-emitting if needed
                 if (text.length > fullOutput.length) {
                   const delta = text.slice(fullOutput.length);
-                  this.emitEvent({ type: 'nodeDelta', nodeId, data: delta });
+                  this.emitEvent({ type: 'nodeDelta', nodeId, data: { text: delta, meta: {} } });
                 }
                 fullOutput = text;
               }
@@ -611,18 +905,18 @@ OUTPUT RAW JSON:`;
     });
   }
 
-  private getOutput(graph: ClawdiniGraph, nodeId: string): string {
+  private getOutput(graph: ClawdiniGraph, nodeId: string): NodePayload {
     const inputEdges = graph.edges.filter((e) => e.target === nodeId);
     const sourceOutputs: string[] = [];
 
     for (const edge of inputEdges) {
       const sourceOutput = this.nodeOutputs.get(edge.source);
       if (sourceOutput && sourceOutput.status === 'completed') {
-        sourceOutputs.push(sourceOutput.output);
+        sourceOutputs.push(sourceOutput.output.text);
       }
     }
 
-    return sourceOutputs.join('\n\n');
+    return { text: sourceOutputs.join('\n\n'), meta: {} };
   }
 
   async cancel(): Promise<void> {

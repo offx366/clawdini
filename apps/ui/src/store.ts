@@ -18,7 +18,7 @@ interface GraphState {
   models: ModelInfo[];
   isRunning: boolean;
   runId: string | null;
-  runLogs: RunEvent[];
+  runLogs: any[];
 }
 
 interface GraphActions {
@@ -33,7 +33,7 @@ interface GraphActions {
   setModels: (models: ModelInfo[]) => void;
   setIsRunning: (running: boolean) => void;
   setRunId: (id: string | null) => void;
-  addRunLog: (event: RunEvent) => void;
+  addRunLog: (event: any) => void;
   clearRunLogs: () => void;
   getGraph: () => ClawdiniGraph;
 }
@@ -54,15 +54,23 @@ function createDefaultNodeData(type: ClawdiniNode['data']['type']): ClawdiniNode
 
   switch (type) {
     case 'input':
-      return { type: 'input', label: `Input-${id.slice(0, 4)}`, prompt: '' };
+      return { type: 'input', label: `Input-${id.slice(0, 4)}`, prompt: '', status: 'idle' };
     case 'agent':
-      return { type: 'agent', label: `Agent-${id.slice(0, 4)}`, agentId: '', output: '', status: 'idle' };
+      return { type: 'agent', label: `Agent-${id.slice(0, 4)}`, agentId: '', status: 'idle' };
     case 'merge':
-      return { type: 'merge', label: `Merge-${id.slice(0, 4)}`, mode: 'concat', output: '', status: 'idle' };
+      return { type: 'merge', label: `Merge-${id.slice(0, 4)}`, mode: 'concat', status: 'idle' };
+    case 'switch':
+      return { type: 'switch', label: `Switch-${id.slice(0, 4)}`, rules: [{ id: uuidv4(), condition: '.*' }], status: 'idle' };
+    case 'extract':
+      return { type: 'extract', label: `Extract-${id.slice(0, 4)}`, schema: '{\n  "key": "value"\n}', status: 'idle' };
+    case 'invoke':
+      return { type: 'invoke', label: `Invoke-${id.slice(0, 4)}`, commandName: 'system.run', payloadTemplate: '{\\n  "command": "echo \\"{INPUT}\\""\\n}', status: 'idle' };
+    case 'foreach':
+      return { type: 'foreach', label: `ForEach-${id.slice(0, 4)}`, arrayPath: '', status: 'idle' };
     case 'output':
-      return { type: 'output', label: `Output-${id.slice(0, 4)}`, output: '' };
+      return { type: 'output', label: `Output-${id.slice(0, 4)}`, status: 'idle' };
     default:
-      return { type: 'input', label: `Input-${id.slice(0, 4)}`, prompt: '' };
+      return { type: 'input', label: `Input-${id.slice(0, 4)}`, prompt: '', status: 'idle' };
   }
 }
 
@@ -90,7 +98,7 @@ export const useGraphStore = create<GraphState & GraphActions>()(
       updateNode: (id, data) => {
         set((state) => ({
           nodes: state.nodes.map((node) =>
-            node.id === id ? { ...node, data: { ...node.data, ...data } } : node
+            node.id === id ? { ...node, data: { ...node.data, ...data } as ClawdiniNode['data'] } : node
           ),
         }));
       },

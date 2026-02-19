@@ -1,5 +1,5 @@
 // Node Palette - left panel with draggable node types
-import { FileInput, Bot, GitMerge, FileOutput, Scale } from 'lucide-react';
+import { FileInput, Bot, GitMerge, FileOutput, Scale, GitBranch, Database, Zap, Repeat } from 'lucide-react';
 import type { ClawdiniNodeData } from '@clawdini/types';
 import { useGraphStore } from '../store';
 
@@ -7,13 +7,17 @@ const nodeTypes: {
   type: ClawdiniNodeData['type'];
   label: string;
   desc: string;
-  icon: React.ComponentType<{ size?: number; style?: React.CSSProperties }>;
+  icon: React.ElementType;
   color: string;
 }[] = [
     { type: 'input', label: 'Input', desc: 'Prompt / source text', icon: FileInput, color: '#3b82f6' },
     { type: 'agent', label: 'Agent', desc: 'AI agent execution', icon: Bot, color: '#8b5cf6' },
     { type: 'merge', label: 'Merge', desc: 'Combine outputs', icon: GitMerge, color: '#22c55e' },
     { type: 'judge', label: 'Judge', desc: 'Eval & JSON decision', icon: Scale, color: '#eab308' },
+    { type: 'switch', label: 'Switch', desc: 'Branch execution path', icon: GitBranch, color: '#ec4899' },
+    { type: 'extract', label: 'Extract', desc: 'Force JSON extraction', icon: Database, color: '#06b6d4' },
+    { type: 'invoke', label: 'Invoke', desc: 'Call OpenClaw API', icon: Zap, color: '#ef4444' },
+    { type: 'foreach', label: 'ForEach', desc: 'Parallel execution per item', icon: Repeat, color: '#f97316' },
     { type: 'output', label: 'Output', desc: 'Final result', icon: FileOutput, color: '#f59e0b' },
   ];
 
