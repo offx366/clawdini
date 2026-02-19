@@ -2,6 +2,8 @@
 
 > Houdini/Nuke for agents - vertical node-based workflow orchestrator
 
+![Clawdini Workflow](screenshot.png)
+
 A visual workflow editor for orchestrating AI agents using OpenClaw Gateway. Build complex agent pipelines by connecting nodes in a graph. Supports parallel execution, model selection, and intelligent merging.
 
 ## Features
@@ -18,6 +20,11 @@ A visual workflow editor for orchestrating AI agents using OpenClaw Gateway. Bui
 - **Real-time Streaming** - See agent responses as they generate
 - **Local Storage Persistence** - Graphs persist across browser sessions
 - **SSE Events** - Real-time progress updates via Server-Sent Events
+
+## Recent updates
+
+- **Fixed Merge Node Timeout:** Resolved an issue where the Merge node would time out after 120 seconds. The issue was traced to the Gateway strictly routing chats based on agent prefixes. The `sessionKey` was updated to properly use the `agent:main:merge:...` format, ensuring the Gateway correctly routes the merge request.
+- **Fixed Node Delta Duplication:** Addressed a frontend log duplication issue. The runner now properly handles `chat` update events and slices the generated text only when sending `nodeDelta` to the UI, preventing repeated strings from accumulating in the Run Log.
 
 ## Quick Start
 

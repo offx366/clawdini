@@ -380,7 +380,14 @@ Provide a comprehensive, well-structured response that combines the above inputs
       }
 
       // Create a session key for this merge operation
-      const sessionKey = `merge:${this.runId}:${nodeId}`;
+      const sessionKey = `agent:main:merge:${this.runId}:${nodeId}`;
+
+      // Reset session for clean run (required before patching)
+      try {
+        await this.gatewayClient.sessionsReset(sessionKey);
+      } catch (e) {
+        console.log('[Runner] Merge session reset error (ignored):', e);
+      }
 
       // Set model if specified
       if (data.modelId) {
@@ -399,6 +406,13 @@ Provide a comprehensive, well-structured response that combines the above inputs
   private waitForMergeResult(nodeId: string, sessionKey: string, runId: string): Promise<string> {
     return new Promise((resolve, reject) => {
       let fullOutput = '';
+      let finished = false;
+
+      const cleanup = () => {
+        this.gatewayClient.off('chat', chatHandler);
+        clearTimeout(timeout);
+        this.runningNodes.delete(nodeId + '-merge');
+      };
 
       const chatHandler = (payload: unknown) => {
         const event = payload as {
@@ -406,9 +420,12 @@ Provide a comprehensive, well-structured response that combines the above inputs
           sessionKey: string;
           state: string;
           message?: unknown;
+          errorMessage?: string;
         };
 
-        if (event.sessionKey === sessionKey && event.runId === runId) {
+        console.log('[Runner][Merge] chat event received:', event.state, 'sessionKey:', event.sessionKey, 'expected:', sessionKey);
+
+        if (event.sessionKey === sessionKey) {
           if (event.state === 'delta' || event.state === 'final') {
             // Parse message to extract text
             let text = '';
@@ -429,12 +446,43 @@ Provide a comprehensive, well-structured response that combines the above inputs
                 text = msg.text;
               }
             }
+
             if (text) {
-              if (event.state === 'final') {
+              // Gateway sends CUMULATIVE text (same as agent handler).
+              // Emit only the new suffix as a delta.
+              if (text.startsWith(fullOutput)) {
+                const delta = text.slice(fullOutput.length);
+                if (delta) {
+                  this.emitEvent({ type: 'nodeDelta', nodeId, data: delta });
+                  this.emitEvent({ type: 'thinking', nodeId, content: `🔀 Merging: ${delta.slice(0, 50)}` });
+                }
                 fullOutput = text;
               } else {
-                fullOutput += text;
+                // Non-prefix update; fall back to replacing by clearing and re-emitting if needed
+                if (text.length > fullOutput.length) {
+                  const delta = text.slice(fullOutput.length);
+                  this.emitEvent({ type: 'nodeDelta', nodeId, data: delta });
+                }
+                fullOutput = text;
               }
+            }
+
+            if (event.state === 'final' && !finished) {
+              finished = true;
+              cleanup();
+              resolve(fullOutput);
+            }
+          } else if (event.state === 'error') {
+            if (!finished) {
+              finished = true;
+              cleanup();
+              reject(new Error(event.errorMessage || 'Merge chat error'));
+            }
+          } else if (event.state === 'aborted') {
+            if (!finished) {
+              finished = true;
+              cleanup();
+              reject(new Error('Merge aborted'));
             }
           }
         }
@@ -442,17 +490,22 @@ Provide a comprehensive, well-structured response that combines the above inputs
 
       this.gatewayClient.on('chat', chatHandler);
 
-      // Timeout after 60 seconds
+      // Hard timeout - 120s for merge (same as agent)
       const timeout = setTimeout(() => {
-        this.gatewayClient.off('chat', chatHandler);
-        if (fullOutput) {
-          resolve(fullOutput);
-        } else {
-          reject(new Error('Merge timeout'));
+        if (!finished) {
+          finished = true;
+          this.gatewayClient.off('chat', chatHandler);
+          this.runningNodes.delete(nodeId + '-merge');
+          if (fullOutput) {
+            // Got partial output - return what we have
+            resolve(fullOutput);
+          } else {
+            reject(new Error('Merge timeout'));
+          }
         }
-      }, 60000);
+      }, 120000);
 
-      // Store timeout info for cleanup
+      // Store for cleanup on cancel
       this.runningNodes.set(nodeId + '-merge', { runId: runId, sessionKey: sessionKey });
     });
   }
