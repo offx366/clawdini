@@ -180,32 +180,38 @@ body {
 }
 
 .panel-right {
-  width: calc(var(--inspector-width) + 60px);
-  min-width: 260px;
-  max-width: 80vw;
-  transition: opacity var(--transition-panel);
-  overflow: auto;
-  direction: rtl;
-  /* Puts the resize handle on the left edge */
-  resize: horizontal;
+  overflow: hidden;
   flex-shrink: 0;
   display: flex;
+  background: var(--bg-panel);
+  border-left: 1px solid var(--border-subtle);
+  transition: opacity var(--transition-panel);
 }
 
 .panel-right.collapsed {
   width: 0 !important;
-  min-width: 0 !important;
   opacity: 0;
   padding: 0 !important;
   border: none !important;
-  resize: none;
   pointer-events: none;
 }
 
 .panel-right>* {
-  direction: ltr;
-  /* Reset content direction back to LTR */
   flex: 1;
+}
+
+.resizer-x {
+  width: 4px;
+  cursor: col-resize;
+  background: var(--border-subtle);
+  flex-shrink: 0;
+  z-index: 50;
+  transition: background 0.2s;
+}
+
+.resizer-x:hover,
+.resizer-x.active {
+  background: var(--accent-primary);
 }
 
 .panel-bottom {

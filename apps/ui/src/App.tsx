@@ -47,10 +47,35 @@ function App() {
     removeEdge,
   } = useGraphStore();
 
-  // ─── Panel visibility ──────────────────────────────────────────────
+  // ─── Panel visibility & resizing ──────────────────────────────────
   const [showPalette, setShowPalette] = useState(true);
   const [showInspector, setShowInspector] = useState(true);
   const [showRunLog, setShowRunLog] = useState(true);
+
+  const [inspectorWidth, setInspectorWidth] = useState(320);
+  const isDraggingInspector = useRef(false);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDraggingInspector.current) return;
+      const newWidth = document.body.clientWidth - e.clientX;
+      if (newWidth >= 260 && newWidth <= document.body.clientWidth * 0.8) {
+        setInspectorWidth(newWidth);
+      }
+    };
+    const handleMouseUp = () => {
+      if (isDraggingInspector.current) {
+        isDraggingInspector.current = false;
+        document.body.style.cursor = 'default';
+      }
+    };
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
 
   // Convert store nodes to ReactFlow format
   const rfNodes: Node[] = useMemo(
@@ -373,7 +398,20 @@ function App() {
         </div>
 
         {/* Right panel – Inspector */}
-        <div className={`panel-right ${showInspector ? '' : 'collapsed'}`}>
+        {showInspector && (
+          <div
+            className="resizer-x"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              isDraggingInspector.current = true;
+              document.body.style.cursor = 'col-resize';
+            }}
+          />
+        )}
+        <div
+          className={`panel-right ${showInspector ? '' : 'collapsed'}`}
+          style={{ width: showInspector ? inspectorWidth : 0 }}
+        >
           <NodeInspector />
         </div>
       </div>
