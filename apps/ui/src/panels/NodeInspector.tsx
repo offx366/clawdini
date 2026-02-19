@@ -1,10 +1,10 @@
 // Node Inspector - right panel for editing selected node properties
 import { useGraphStore } from '../store';
-import { Trash2 } from 'lucide-react';
+import { Trash2, Settings2 } from 'lucide-react';
 import type { InputNodeData, AgentNodeData, MergeNodeData, OutputNodeData } from '@clawdini/types';
 
 export function NodeInspector() {
-  const { nodes, selectedNodeId, agents, models, updateNode, removeNode } = useGraphStore();
+  const { nodes, edges, selectedNodeId, agents, models, updateNode, removeNode } = useGraphStore();
 
   const selectedNode = nodes.find((n) => n.id === selectedNodeId);
 
@@ -12,76 +12,97 @@ export function NodeInspector() {
     return (
       <div
         style={{
-          width: 240,
-          background: '#16213e',
-          borderLeft: '1px solid #333',
+          width: '100%',
+          height: '100%',
+          background: 'var(--bg-panel)',
+          borderLeft: '1px solid var(--border-subtle)',
           padding: 16,
-          color: '#666',
-          fontSize: 13,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 8,
+          color: 'var(--text-dim)',
         }}
       >
-        Select a node to edit
+        <Settings2 size={24} />
+        <span style={{ fontSize: 12 }}>Select a node to inspect</span>
       </div>
     );
   }
 
   const data = selectedNode.data;
+  const incomingEdges = edges.filter((e) => e.target === selectedNode.id);
+  const outgoingEdges = edges.filter((e) => e.source === selectedNode.id);
+
+  const nodeColors: Record<string, string> = {
+    input: '#3b82f6',
+    agent: '#8b5cf6',
+    merge: '#22c55e',
+    output: '#f59e0b',
+  };
+  const color = nodeColors[data.type] || '#888';
 
   return (
     <div
       style={{
-        width: 240,
-        background: '#16213e',
-        borderLeft: '1px solid #333',
-        padding: 16,
+        width: '100%',
+        height: '100%',
+        background: 'var(--bg-panel)',
+        borderLeft: '1px solid var(--border-subtle)',
+        padding: 14,
         display: 'flex',
         flexDirection: 'column',
-        gap: 12,
+        gap: 10,
+        overflowY: 'auto',
       }}
     >
-      <div style={{ fontSize: 12, color: '#888', textTransform: 'uppercase', letterSpacing: 1 }}>
-        Inspector
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+        <div
+          style={{
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            background: color,
+            boxShadow: `0 0 6px ${color}80`,
+          }}
+        />
+        <span
+          style={{
+            fontSize: 10,
+            color: 'var(--text-muted)',
+            textTransform: 'uppercase',
+            letterSpacing: '0.1em',
+            fontWeight: 700,
+          }}
+        >
+          {data.type} Inspector
+        </span>
       </div>
 
       {/* Label */}
       <div>
-        <label style={{ display: 'block', fontSize: 11, color: '#888', marginBottom: 4 }}>Label</label>
+        <label className="inspector-label">Label</label>
         <input
+          className="inspector-input"
           type="text"
           value={data.label}
           onChange={(e) => updateNode(selectedNode.id, { label: e.target.value })}
-          style={{
-            width: '100%',
-            padding: '8px 10px',
-            background: '#1a1a2e',
-            border: '1px solid #333',
-            borderRadius: 4,
-            color: '#eee',
-            fontSize: 13,
-          }}
         />
       </div>
 
-      {/* Type-specific fields */}
+      {/* ── Type-specific fields ────────────────────────────────── */}
+
       {data.type === 'input' && (
         <div>
-          <label style={{ display: 'block', fontSize: 11, color: '#888', marginBottom: 4 }}>Prompt</label>
+          <label className="inspector-label">Prompt</label>
           <textarea
+            className="inspector-textarea"
             value={(data as InputNodeData).prompt}
             onChange={(e) => updateNode(selectedNode.id, { prompt: e.target.value })}
             placeholder="Enter prompt..."
-            rows={4}
-            style={{
-              width: '100%',
-              padding: '8px 10px',
-              background: '#1a1a2e',
-              border: '1px solid #333',
-              borderRadius: 4,
-              color: '#eee',
-              fontSize: 13,
-              resize: 'vertical',
-              fontFamily: 'monospace',
-            }}
+            rows={5}
           />
         </div>
       )}
@@ -89,19 +110,11 @@ export function NodeInspector() {
       {data.type === 'agent' && (
         <>
           <div>
-            <label style={{ display: 'block', fontSize: 11, color: '#888', marginBottom: 4 }}>Agent</label>
+            <label className="inspector-label">Agent</label>
             <select
+              className="inspector-select"
               value={(data as AgentNodeData).agentId}
               onChange={(e) => updateNode(selectedNode.id, { agentId: e.target.value })}
-              style={{
-                width: '100%',
-                padding: '8px 10px',
-                background: '#1a1a2e',
-                border: '1px solid #333',
-                borderRadius: 4,
-                color: '#eee',
-                fontSize: 13,
-              }}
             >
               <option value="">Select agent...</option>
               {agents.map((agent) => (
@@ -113,19 +126,11 @@ export function NodeInspector() {
           </div>
 
           <div>
-            <label style={{ display: 'block', fontSize: 11, color: '#888', marginBottom: 4 }}>Model (optional)</label>
+            <label className="inspector-label">Model (optional)</label>
             <select
+              className="inspector-select"
               value={(data as AgentNodeData).modelId || ''}
               onChange={(e) => updateNode(selectedNode.id, { modelId: e.target.value || undefined })}
-              style={{
-                width: '100%',
-                padding: '8px 10px',
-                background: '#1a1a2e',
-                border: '1px solid #333',
-                borderRadius: 4,
-                color: '#eee',
-                fontSize: 13,
-              }}
             >
               <option value="">Default model</option>
               {models.map((model) => (
@@ -135,47 +140,64 @@ export function NodeInspector() {
               ))}
             </select>
           </div>
+
+          <div>
+            <label className="inspector-label">Role (optional)</label>
+            <select
+              className="inspector-select"
+              value={(data as AgentNodeData).role || ''}
+              onChange={(e) => updateNode(selectedNode.id, { role: (e.target.value as any) || undefined })}
+            >
+              <option value="">None (Default)</option>
+              <option value="planner">Planner / Manager</option>
+              <option value="critic">Critic / Reviewer</option>
+              <option value="researcher">Researcher</option>
+              <option value="operator">Operator / Executor</option>
+            </select>
+          </div>
         </>
       )}
 
       {data.type === 'merge' && (
         <>
           <div>
-            <label style={{ display: 'block', fontSize: 11, color: '#888', marginBottom: 4 }}>Mode</label>
+            <label className="inspector-label">Mode</label>
             <select
+              className="inspector-select"
               value={(data as MergeNodeData).mode}
-              onChange={(e) => updateNode(selectedNode.id, { mode: e.target.value as 'concat' | 'llm' })}
-              style={{
-                width: '100%',
-                padding: '8px 10px',
-                background: '#1a1a2e',
-                border: '1px solid #333',
-                borderRadius: 4,
-                color: '#eee',
-                fontSize: 13,
-              }}
+              onChange={(e) => updateNode(selectedNode.id, { mode: e.target.value as 'concat' | 'llm' | 'consensus' })}
             >
               <option value="concat">Concatenate</option>
               <option value="llm">LLM Merge</option>
+              <option value="consensus">Consensus (Meeting Minutes)</option>
             </select>
+          </div>
+
+          {/* Show incoming connections count */}
+          <div
+            style={{
+              padding: '6px 10px',
+              background: 'var(--bg-input)',
+              border: '1px solid var(--border-subtle)',
+              borderRadius: 6,
+              fontSize: 11,
+              color: 'var(--text-secondary)',
+            }}
+          >
+            <span style={{ color: 'var(--accent-green)', fontWeight: 600 }}>
+              {incomingEdges.length}
+            </span>{' '}
+            input{incomingEdges.length !== 1 ? 's' : ''} connected
           </div>
 
           {(data as MergeNodeData).mode === 'llm' && (
             <>
               <div>
-                <label style={{ display: 'block', fontSize: 11, color: '#888', marginBottom: 4 }}>Model (for LLM Merge)</label>
+                <label className="inspector-label">Model (for LLM Merge)</label>
                 <select
+                  className="inspector-select"
                   value={(data as MergeNodeData).modelId || ''}
                   onChange={(e) => updateNode(selectedNode.id, { modelId: e.target.value || undefined })}
-                  style={{
-                    width: '100%',
-                    padding: '8px 10px',
-                    background: '#1a1a2e',
-                    border: '1px solid #333',
-                    borderRadius: 4,
-                    color: '#eee',
-                    fontSize: 13,
-                  }}
                 >
                   <option value="">Default model</option>
                   {models.map((model) => (
@@ -187,74 +209,126 @@ export function NodeInspector() {
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: 11, color: '#888', marginBottom: 4 }}>Custom Prompt (optional)</label>
+                <label className="inspector-label">Custom Prompt (optional)</label>
                 <textarea
+                  className="inspector-textarea"
                   value={(data as MergeNodeData).prompt || ''}
                   onChange={(e) => updateNode(selectedNode.id, { prompt: e.target.value || undefined })}
-                  placeholder="Leave empty to use default prompt..."
-                  rows={6}
-                  style={{
-                    width: '100%',
-                    padding: '8px 10px',
-                    background: '#1a1a2e',
-                    border: '1px solid #333',
-                    borderRadius: 4,
-                    color: '#eee',
-                    fontSize: 12,
-                    resize: 'vertical',
-                    fontFamily: 'monospace',
-                  }}
+                  placeholder="Use {INPUTS} placeholder..."
+                  rows={5}
                 />
               </div>
             </>
           )}
+
+          {(data as MergeNodeData).mode === 'consensus' && (
+            <div>
+              <label className="inspector-label">Model (for Consensus)</label>
+              <select
+                className="inspector-select"
+                value={(data as MergeNodeData).modelId || ''}
+                onChange={(e) => updateNode(selectedNode.id, { modelId: e.target.value || undefined })}
+              >
+                <option value="">Default model</option>
+                {models.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.name} ({model.provider})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </>
+      )}
+
+      {data.type === 'judge' && (
+        <>
+          <div>
+            <label className="inspector-label">Model</label>
+            <select
+              className="inspector-select"
+              value={(data as any).modelId || ''}
+              onChange={(e) => updateNode(selectedNode.id, { modelId: e.target.value || undefined })}
+            >
+              <option value="">Default model</option>
+              {models.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.name} ({model.provider})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="inspector-label">Evaluation Criteria</label>
+            <textarea
+              className="inspector-textarea"
+              value={(data as any).criteria || ''}
+              onChange={(e) => updateNode(selectedNode.id, { criteria: e.target.value })}
+              placeholder="e.g. 1. Is it safe to execute? 2. Are all edge cases handled?"
+              rows={5}
+            />
+          </div>
+
+          <div>
+            <label className="inspector-label">Output (JSON format)</label>
+            <textarea
+              className="inspector-textarea"
+              value={(data as any).output || ''}
+              readOnly
+              placeholder="{}"
+              rows={8}
+              style={{ color: 'var(--accent-green)', background: 'rgba(0,0,0,0.25)', fontFamily: 'monospace' }}
+            />
+          </div>
         </>
       )}
 
       {data.type === 'output' && (
         <div>
-          <label style={{ display: 'block', fontSize: 11, color: '#888', marginBottom: 4 }}>Output</label>
+          <label className="inspector-label">Output</label>
           <textarea
+            className="inspector-textarea"
             value={(data as OutputNodeData).output || ''}
             readOnly
-            placeholder="Output will appear here after run..."
+            placeholder="Output will appear after run..."
             rows={8}
-            style={{
-              width: '100%',
-              padding: '8px 10px',
-              background: '#0a0a15',
-              border: '1px solid #333',
-              borderRadius: 4,
-              color: '#22c55e',
-              fontSize: 12,
-              resize: 'vertical',
-              fontFamily: 'monospace',
-            }}
+            style={{ color: 'var(--accent-green)', background: 'rgba(0,0,0,0.25)' }}
           />
         </div>
       )}
 
-      {/* Delete button */}
-      <button
-        onClick={() => {
-          removeNode(selectedNode.id);
-        }}
+      {/* ── Connections info ─────────────────────────────────────── */}
+      <div
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 6,
-          marginTop: 'auto',
-          padding: '8px 12px',
-          background: '#3d1f1f',
-          border: '1px solid #ef4444',
-          borderRadius: 4,
-          color: '#ef4444',
-          fontSize: 12,
-          cursor: 'pointer',
+          padding: '6px 10px',
+          background: 'var(--bg-input)',
+          border: '1px solid var(--border-subtle)',
+          borderRadius: 6,
+          fontSize: 10,
+          color: 'var(--text-muted)',
+          lineHeight: 1.6,
         }}
       >
-        <Trash2 className="w-3 h-3" />
+        {incomingEdges.length > 0 && (
+          <div>↓ {incomingEdges.length} incoming</div>
+        )}
+        {outgoingEdges.length > 0 && (
+          <div>↑ {outgoingEdges.length} outgoing</div>
+        )}
+        {incomingEdges.length === 0 && outgoingEdges.length === 0 && (
+          <div>No connections</div>
+        )}
+      </div>
+
+      {/* Delete button */}
+      <div style={{ flex: 1 }} />
+      <button
+        className="btn btn-danger"
+        onClick={() => removeNode(selectedNode.id)}
+        style={{ width: '100%' }}
+      >
+        <Trash2 size={12} />
         Delete Node
       </button>
     </div>

@@ -139,6 +139,9 @@ export class GraphRunner {
         case 'merge':
           output = await this.executeMergeNode(graph, nodeId, data as MergeNodeData);
           break;
+        case 'judge':
+          output = await this.executeJudgeNode(graph, nodeId, data as any);
+          break;
         case 'output':
           output = this.getOutput(graph, nodeId);
           break;
@@ -183,6 +186,20 @@ export class GraphRunner {
         }
       }
       inputText = sourceOutputs.join('\n\n');
+    }
+
+    // Inject Role Prompt if specified
+    if (data.role && data.role !== 'custom') {
+      const rolePrompts: Record<string, string> = {
+        planner: 'You are a Chief Planner. Your goal is to analyze the input and create a high-level strategy, identifying key objectives and success criteria.',
+        critic: 'You are a strict Critic. Your goal is to find flaws, security risks, edge cases, and logical inconsistencies in the input.',
+        researcher: 'You are a deeply analytical Researcher. Your goal is to pull facts, provide context, and cite relevant information related to the input.',
+        operator: 'You are a pragmatic Operator. Your goal is to take the input and formulate a concrete, step-by-step action plan to execute it.',
+      };
+      const systemPrompt = rolePrompts[data.role];
+      if (systemPrompt) {
+        inputText = `${systemPrompt}\n\n--- INPUT ---\n${inputText}`;
+      }
     }
 
     console.log('[Runner] Input text:', inputText?.slice(0, 100));
@@ -340,29 +357,48 @@ export class GraphRunner {
         .map((item, i) => `=== Source ${i + 1} ===\n${item.output}\n`)
         .join('\n');
     } else {
-      // LLM Merge - use model to intelligently combine inputs
-      if (sourceOutputs.length === 0) {
-        return '';
-      }
-      if (sourceOutputs.length === 1) {
-        return sourceOutputs[0].output;
-      }
+      let mergePrompt = '';
 
-      // Build the merge prompt
-      let mergePrompt: string;
-      if (data.prompt) {
-        // Use custom prompt - replace {INPUTS} placeholder with actual inputs
+      if (data.mode === 'consensus') {
+        if (sourceOutputs.length === 0) return '';
+        if (sourceOutputs.length === 1) return sourceOutputs[0].output;
+
         const inputsText = sourceOutputs
-          .map((item, i) => `Input ${i + 1}:\n${item.output}`)
-          .join('\n\n---\n\n');
-        mergePrompt = data.prompt.replace(/\{INPUTS\}/gi, inputsText);
-      } else {
-        // Default prompt
-        const inputsText = sourceOutputs
-          .map((item, i) => `--- Input ${i + 1} ---\n${item.output}`)
+          .map((item, i) => `--- Participant ${i + 1} ---\n${item.output}`)
           .join('\n\n');
 
-        mergePrompt = `You are an expert at synthesizing information from multiple sources. Your task is to analyze the multiple inputs below and create a single, comprehensive, and coherent response that combines the most important information from all sources.
+        mergePrompt = `You are an expert Meeting Facilitator for a board of AI agents. Your task is to analyze the various perspectives below and produce a structured Meeting Minutes document.
+
+Instructions:
+1. Identify who said what (summarize key points from each participant).
+2. Highlight areas of AGREEMENT (consensus).
+3. Highlight areas of DISAGREEMENT or conflict.
+4. Formulate a final proposed resolution or next steps based on the synthesis.
+
+--- INPUTS ---
+${inputsText}
+
+--- OUTPUT ---
+Provide the Meeting Minutes:`;
+      } else {
+        // Default LLM Merge
+        if (sourceOutputs.length === 0) return '';
+        if (sourceOutputs.length === 1) return sourceOutputs[0].output;
+
+        // Build the merge prompt
+        if (data.prompt) {
+          // Use custom prompt - replace {INPUTS} placeholder with actual inputs
+          const inputsText = sourceOutputs
+            .map((item, i) => `Input ${i + 1}:\n${item.output}`)
+            .join('\n\n---\n\n');
+          mergePrompt = data.prompt.replace(/\{INPUTS\}/gi, inputsText);
+        } else {
+          // Default prompt
+          const inputsText = sourceOutputs
+            .map((item, i) => `--- Input ${i + 1} ---\n${item.output}`)
+            .join('\n\n');
+
+          mergePrompt = `You are an expert at synthesizing information from multiple sources. Your task is to analyze the multiple inputs below and create a single, comprehensive, and coherent response that combines the most important information from all sources.
 
 Instructions:
 1. Integrate and synthesize the information from all inputs
@@ -377,6 +413,7 @@ ${inputsText}
 
 --- OUTPUT ---
 Provide a comprehensive, well-structured response that combines the above inputs:`;
+        }
       }
 
       // Create a session key for this merge operation
@@ -400,6 +437,70 @@ Provide a comprehensive, well-structured response that combines the above inputs
       // Wait for the response
       const mergedOutput = await this.waitForMergeResult(nodeId, sessionKey, result.runId);
       return mergedOutput;
+    }
+  }
+
+  private async executeJudgeNode(graph: ClawdiniGraph, nodeId: string, data: any): Promise<string> {
+    // Get inputs from connected nodes
+    const inputEdges = graph.edges.filter((e) => e.target === nodeId);
+    const sourceOutputs: string[] = [];
+
+    for (const edge of inputEdges) {
+      const sourceOutput = this.nodeOutputs.get(edge.source);
+      if (sourceOutput && sourceOutput.status === 'completed') {
+        sourceOutputs.push(sourceOutput.output);
+      }
+    }
+
+    const inputText = sourceOutputs.join('\n\n');
+    const criteria = data.criteria || 'Evaluate the input objectively.';
+
+    const judgePrompt = `You are an impartial, strict AI Judge. You must evaluate the provided input based ONLY on the criteria listed below.
+Your output MUST be a valid JSON object. Do NOT wrap it in markdown codeblocks (like \`\`\`json). Output raw JSON only.
+
+--- CRITERIA ---
+${criteria}
+
+--- INPUT TO EVALUATE ---
+${inputText}
+
+--- REQUIRED JSON FORMAT ---
+{
+  "score": <number from 1 to 10>,
+  "approved": <boolean>,
+  "reasoning": "<short explanation>",
+  "action_items": ["<item 1>", "<item 2>"]
+}
+
+OUTPUT RAW JSON:`;
+
+    const sessionKey = `agent:main:judge:${this.runId}:${nodeId}`;
+
+    try {
+      await this.gatewayClient.sessionsReset(sessionKey);
+    } catch (e) {
+      console.log('[Runner] Judge session reset error:', e);
+    }
+
+    if (data.modelId) {
+      await this.gatewayClient.sessionsPatch(sessionKey, { model: data.modelId });
+    }
+
+    const result = await this.gatewayClient.chatSend(sessionKey, judgePrompt);
+    const output = await this.waitForMergeResult(nodeId, sessionKey, result.runId);
+
+    // Try to ensure clean JSON output
+    try {
+      let cleanOutput = output.trim();
+      if (cleanOutput.startsWith('```json')) {
+        cleanOutput = cleanOutput.replace(/```json\n?/, '').replace(/```\n?$/, '');
+      }
+      // Just to validate it parses
+      JSON.parse(cleanOutput);
+      return cleanOutput;
+    } catch (e) {
+      console.log('[Runner] Judge output was not valid JSON, returning raw.');
+      return output;
     }
   }
 

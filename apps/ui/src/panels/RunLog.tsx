@@ -1,11 +1,17 @@
 // Run Log - bottom panel showing execution logs
 import { useGraphStore } from '../store';
 import { Play, Square, RotateCcw, ChevronDown, ChevronRight, MessageSquare } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 
 export function RunLog() {
   const { nodes, edges, isRunning, runId, runLogs, setIsRunning, setRunId, clearRunLogs, getGraph, updateNode, addRunLog } = useGraphStore();
   const [showDebug, setShowDebug] = useState(true);
+  const logEndRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll to bottom
+  useEffect(() => {
+    logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [runLogs.length]);
 
   const addDebugLog = (message: string) => {
     console.log('[DEBUG]', message);
@@ -18,7 +24,6 @@ export function RunLog() {
     addDebugLog(`📊 Graph: ${nodes.length} nodes, ${edges.length} edges`);
 
     const graph = getGraph();
-    console.log('[RunLog] Graph nodes:', graph.nodes.map(n => ({ id: n.id, type: n.data.type, label: n.data.label })));
 
     if (graph.nodes.length === 0) {
       alert('Add nodes first!');
@@ -29,7 +34,6 @@ export function RunLog() {
     setIsRunning(true);
     addDebugLog('🔄 Initializing run...');
 
-    // Log each node configuration
     for (const node of graph.nodes) {
       const data = node.data;
       if (data.type === 'input') {
@@ -45,7 +49,6 @@ export function RunLog() {
       }
     }
 
-    // Log edges
     if (graph.edges.length > 0) {
       addDebugLog(`🔗 Connections: ${graph.edges.map(e => `${e.source} → ${e.target}`).join(', ')}`);
     }
@@ -81,20 +84,16 @@ export function RunLog() {
       setRunId(newRunId);
       addDebugLog(`✅ Run started with ID: ${newRunId}`);
 
-      // Update node statuses
       graph.nodes.forEach((node) => {
         addDebugLog(`▶️ Starting node: ${node.data.label} (${node.data.type})`);
         updateNode(node.id, { status: 'running', output: '' });
       });
 
-      // Connect to SSE
       addDebugLog('🔌 Connecting to event stream (SSE)...');
       const eventSource = new EventSource(`/api/run/${newRunId}/events`);
 
       eventSource.onmessage = (event) => {
         const evtData = JSON.parse(event.data);
-        console.log('[RunLog] SSE message:', evtData);
-
         if (!evtData || typeof evtData.type !== 'string') return;
 
         if (evtData.type === 'nodeStarted') {
@@ -102,7 +101,6 @@ export function RunLog() {
           addDebugLog(`▶️ Node started: ${node?.data.label || evtData.nodeId}`);
           updateNode(evtData.nodeId, { status: 'running' });
         } else if (evtData.type === 'nodeDelta') {
-          // Show thinking indicator
           const node = graph.nodes.find(n => n.id === evtData.nodeId);
           const nodeLabel = node?.data.label || evtData.nodeId;
           addDebugLog(`💭 ${nodeLabel}: receiving response... "${evtData.data?.slice(0, 30) || ''}..."`);
@@ -165,12 +163,21 @@ export function RunLog() {
     }
   };
 
+  const getLogColor = (logData: string) => {
+    if (logData.includes('❌') || logData.includes('💥')) return 'var(--accent-red)';
+    if (logData.includes('✅') || logData.includes('🏁')) return 'var(--accent-green)';
+    if (logData.includes('💭')) return 'var(--accent-amber)';
+    if (logData.includes('🧠')) return 'var(--accent-primary)';
+    if (logData.includes('🚀') || logData.includes('📡') || logData.includes('🔌')) return 'var(--accent-cyan)';
+    return 'var(--text-muted)';
+  };
+
   return (
     <div
       style={{
-        height: 200,
-        background: '#16213e',
-        borderTop: '1px solid #333',
+        height: '100%',
+        background: 'var(--bg-panel)',
+        borderTop: '1px solid var(--border-subtle)',
         display: 'flex',
         flexDirection: 'column',
       }}
@@ -180,54 +187,38 @@ export function RunLog() {
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 8,
-          padding: '8px 12px',
-          borderBottom: '1px solid #333',
+          gap: 6,
+          padding: '6px 10px',
+          borderBottom: '1px solid var(--border-subtle)',
+          flexShrink: 0,
         }}
       >
         <button
+          className={`btn ${isRunning ? 'btn-stop' : 'btn-run'}`}
           onClick={isRunning ? handleCancel : handleRun}
           disabled={nodes.length === 0}
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            padding: '8px 16px',
-            background: isRunning ? '#dc2626' : '#16a34a',
-            border: 'none',
-            borderRadius: 4,
-            color: '#fff',
-            fontSize: 13,
-            fontWeight: 'bold',
+            opacity: nodes.length === 0 ? 0.4 : 1,
             cursor: nodes.length === 0 ? 'not-allowed' : 'pointer',
-            opacity: nodes.length === 0 ? 0.5 : 1,
           }}
         >
-          {isRunning ? <Square className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+          {isRunning ? <Square size={12} /> : <Play size={12} />}
           {isRunning ? 'STOP' : 'RUN'}
         </button>
 
-        <button
-          onClick={clearRunLogs}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            padding: '6px 12px',
-            background: '#333',
-            border: 'none',
-            borderRadius: 4,
-            color: '#aaa',
-            fontSize: 12,
-            cursor: 'pointer',
-          }}
-        >
-          <RotateCcw className="w-3 h-3" />
+        <button className="btn btn-secondary" onClick={clearRunLogs}>
+          <RotateCcw size={11} />
           Clear
         </button>
 
-        <span style={{ marginLeft: 'auto', fontSize: 11, color: '#888' }}>
-          {isRunning ? '🔄 Running...' : `Ready (${nodes.length} nodes, ${edges.length} edges)`}
+        <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--text-muted)' }}>
+          {isRunning ? (
+            <span style={{ color: 'var(--accent-green)', animation: 'pulse 1.5s infinite' }}>
+              ● Running...
+            </span>
+          ) : (
+            `${nodes.length} nodes · ${edges.length} edges`
+          )}
         </span>
       </div>
 
@@ -236,70 +227,94 @@ export function RunLog() {
         style={{
           flex: 1,
           overflow: 'auto',
-          padding: '8px 12px',
-          fontFamily: 'monospace',
+          padding: '6px 10px',
+          fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
           fontSize: 10,
-          color: '#aaa',
         }}
       >
         {/* Debug toggle */}
         <div
           onClick={() => setShowDebug(!showDebug)}
           style={{
-            display: 'flex',
+            display: 'inline-flex',
             alignItems: 'center',
             gap: 4,
             cursor: 'pointer',
-            color: '#888',
-            marginBottom: 8,
+            color: 'var(--text-muted)',
+            marginBottom: 6,
+            padding: '2px 6px',
+            background: 'var(--bg-input)',
+            borderRadius: 4,
+            fontSize: 10,
           }}
         >
-          {showDebug ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-          <MessageSquare className="w-3 h-3" />
-          <span>Debug Log (thinking process)</span>
+          {showDebug ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+          <MessageSquare size={10} />
+          <span>Execution Log</span>
+          {runLogs.length > 0 && (
+            <span style={{ color: 'var(--accent-primary)', marginLeft: 4 }}>({runLogs.length})</span>
+          )}
         </div>
 
         {showDebug && (
-          <div style={{ marginBottom: 8, maxHeight: 120, overflow: 'auto', background: '#0a0a1a', padding: 4, borderRadius: 4 }}>
+          <div
+            style={{
+              marginBottom: 6,
+              maxHeight: 140,
+              overflow: 'auto',
+              background: 'rgba(0,0,0,0.2)',
+              padding: 6,
+              borderRadius: 6,
+              border: '1px solid var(--border-subtle)',
+            }}
+          >
             {runLogs.map((log, i) => (
-              <div key={i} style={{
-                color: log.type === 'debug'
-                  ? (String(log.data).includes('❌') ? '#ef4444' :
-                     String(log.data).includes('✅') ? '#22c55e' :
-                     String(log.data).includes('🏁') ? '#22c55e' :
-                     String(log.data).includes('💭') ? '#f59e0b' :
-                     String(log.data).includes('🧠') ? '#a855f7' :
-                     '#888')
-                  : '#666',
-                marginBottom: 2,
-                fontSize: 9,
-              }}>
+              <div
+                key={i}
+                style={{
+                  color: log.type === 'debug' ? getLogColor(String(log.data)) : 'var(--text-dim)',
+                  marginBottom: 1,
+                  fontSize: 9,
+                  lineHeight: 1.5,
+                  animation: 'fadeIn 0.2s ease',
+                }}
+              >
                 {log.data}
               </div>
             ))}
-            {runLogs.length === 0 && <span style={{ color: '#444' }}>Click RUN to see execution logs...</span>}
+            {runLogs.length === 0 && (
+              <span style={{ color: 'var(--text-dim)' }}>Click RUN to see execution logs...</span>
+            )}
+            <div ref={logEndRef} />
           </div>
         )}
 
-        {nodes.length === 0 ? (
-          <div style={{ color: '#666' }}>Click nodes in palette to add them, then click RUN</div>
-        ) : (
-          <div>
-            {nodes.map(node => (
-              <div key={node.id} style={{ marginBottom: 2 }}>
-                {node.data.status === 'running' ? '⏳' :
-                 node.data.status === 'completed' ? '✅' :
-                 node.data.status === 'error' ? '❌' : '📍'} {node.data.label} ({node.data.type})
-                {node.data.type === 'input' && ` - "${(node.data as any).prompt?.slice(0, 30) || 'no prompt'}..."`}
-                {node.data.type === 'agent' && ` - agent: ${(node.data as any).agentId || 'none'}`}
-                {node.data.type === 'agent' && (node.data as any).modelId && `, model: ${(node.data as any).modelId}`}
+        {/* Node status */}
+        {nodes.length > 0 && (
+          <div style={{ fontSize: 10, color: 'var(--text-secondary)' }}>
+            {nodes.map((node) => (
+              <div
+                key={node.id}
+                style={{
+                  marginBottom: 2,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+              >
+                <span>
+                  {node.data.status === 'running'
+                    ? '⏳'
+                    : node.data.status === 'completed'
+                      ? '✅'
+                      : node.data.status === 'error'
+                        ? '❌'
+                        : '◦'}
+                </span>
+                <span style={{ fontWeight: 600 }}>{node.data.label}</span>
+                <span style={{ color: 'var(--text-dim)' }}>({node.data.type})</span>
               </div>
             ))}
-            {edges.length > 0 && (
-              <div style={{ marginTop: 8, color: '#888' }}>
-                Connections: {edges.map(e => `${e.source} → ${e.target}`).join(', ')}
-              </div>
-            )}
           </div>
         )}
       </div>

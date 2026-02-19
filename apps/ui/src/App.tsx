@@ -1,12 +1,15 @@
 // Clawdini - Main App Component
-import { useEffect, useCallback, useMemo } from 'react';
+import { useEffect, useCallback, useMemo, useRef, useState } from 'react';
 import {
   ReactFlow,
   Background,
   Controls,
+  MiniMap,
   type Connection,
   type Node,
   type Edge,
+  type OnConnectStartParams,
+  reconnectEdge,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
@@ -16,6 +19,14 @@ import { NodeInspector } from './panels/NodeInspector';
 import { RunLog } from './panels/RunLog';
 import { useGraphStore } from './store';
 import type { ClawdiniNodeData, AgentInfo } from '@clawdini/types';
+import {
+  PanelLeft,
+  PanelRight,
+  PanelBottomClose,
+  PanelLeftClose,
+  PanelRightClose,
+  PanelBottom,
+} from 'lucide-react';
 
 // Register custom node types
 const nodeTypes = {
@@ -35,6 +46,11 @@ function App() {
     addNode,
     removeEdge,
   } = useGraphStore();
+
+  // ─── Panel visibility ──────────────────────────────────────────────
+  const [showPalette, setShowPalette] = useState(true);
+  const [showInspector, setShowInspector] = useState(true);
+  const [showRunLog, setShowRunLog] = useState(true);
 
   // Convert store nodes to ReactFlow format
   const rfNodes: Node[] = useMemo(
@@ -56,7 +72,8 @@ function App() {
         source: e.source,
         target: e.target,
         type: 'smoothstep',
-        style: { stroke: '#666', strokeWidth: 2 },
+        animated: false,
+        style: { stroke: '#555580', strokeWidth: 2 },
         selectable: true,
         selected: e.selected || false,
       })),
@@ -84,13 +101,21 @@ function App() {
       });
   }, [setAgents, setModels]);
 
+  // ─── Helper: is target node a merge? ───────────────────────────────
+  const isTargetMerge = useCallback(
+    (nodeId: string) => {
+      const node = storeNodes.find((n) => n.id === nodeId);
+      return node?.data?.type === 'merge';
+    },
+    [storeNodes]
+  );
+
   const onNodesChange = useCallback(
     (changes: any[]) => {
       const positionChanges = changes.filter((c) => c.type === 'position');
       const selectionChanges = changes.filter((c) => c.type === 'select');
 
       if (positionChanges.length > 0) {
-        // Update node positions in store
         const newNodes = [...storeNodes];
         positionChanges.forEach((change: any) => {
           const node = newNodes.find((n) => n.id === change.id);
@@ -123,47 +148,89 @@ function App() {
     [storeEdges, setEdges]
   );
 
+  // ─── Houdini-style connection logic ───────────────────────────────
+  //
+  // • Target handles on normal nodes: single input only → Houdini pick-up
+  // • Target handles on MERGE nodes: multiple inputs allowed → no pick-up
+  // • Source handles: always start new connections (no pick-up)
+  // ───────────────────────────────────────────────────────────────────
+
+  const reconnectSucceeded = useRef(false);
+
+  const onConnectStart = useCallback(
+    (_: any, params: OnConnectStartParams) => {
+      if (params.handleType === 'target' && params.nodeId) {
+        // Only pick up existing edge for NON-MERGE nodes
+        const { nodes: currentNodes, edges: currentEdges } = useGraphStore.getState();
+        const targetNode = currentNodes.find((n) => n.id === params.nodeId);
+        if (targetNode?.data?.type !== 'merge') {
+          const existing = currentEdges.find((e) => e.target === params.nodeId);
+          if (existing) {
+            console.log('[App] Houdini pick-up: detaching edge', existing.id);
+            setEdges(currentEdges.filter((e) => e.id !== existing.id));
+          }
+        }
+      }
+    },
+    [setEdges]
+  );
+
+  const onConnectEnd = useCallback(() => {
+    // intentionally empty
+  }, []);
+
   const onConnect = useCallback(
     (connection: Connection) => {
       if (connection.source && connection.target) {
-        // If connecting to a target that already has an incoming edge, remove the old one
-        const existingEdge = storeEdges.find(e => e.target === connection.target);
-        if (existingEdge) {
-          setEdges(storeEdges.filter(e => e.id !== existingEdge.id));
-        }
+        const { nodes: currentNodes, edges: currentEdges } = useGraphStore.getState();
+        const targetNode = currentNodes.find((n) => n.id === connection.target);
+        const isMerge = targetNode?.data?.type === 'merge';
+
+        // Prevent duplicate edges (same source → same target)
+        const duplicate = currentEdges.find(
+          (e) => e.source === connection.source && e.target === connection.target
+        );
+        if (duplicate) return;
 
         const newEdge = {
-          id: `${connection.source}-${connection.target}`,
+          id: `${connection.source}-${connection.target}-${Date.now()}`,
           source: connection.source,
           target: connection.target,
         };
-        setEdges([...storeEdges.filter(e => e.target !== connection.target), newEdge]);
+
+        if (isMerge) {
+          // Merge node: allow multiple inputs — just add the new edge
+          setEdges([...currentEdges, newEdge]);
+        } else {
+          // Normal node: replace any existing incoming edge
+          setEdges([...currentEdges.filter((e) => e.target !== connection.target), newEdge]);
+        }
       }
     },
-    [storeEdges, setEdges]
+    [setEdges]
   );
 
-  // Track connection start for potential disconnect
-  const onConnectStart = useCallback(
-    (_: React.MouseEvent, edge: { nodeId: string; handleId: string | null; handleType: string }) => {
-      console.log('[App] Connect start:', edge);
+  const onReconnect = useCallback(
+    (oldEdge: Edge, newConnection: Connection) => {
+      reconnectSucceeded.current = true;
+      const { edges: currentEdges } = useGraphStore.getState();
+      setEdges(reconnectEdge(oldEdge, newConnection, currentEdges as Edge[]) as typeof storeEdges);
     },
-    []
+    [setEdges]
   );
 
-  // Handle connection end - if no valid connection made, disconnect existing
-  const onConnectEnd = useCallback(
-    (event: MouseEvent | TouchEvent | null, edgeParams: { nodeId?: string; handleId?: string | null; handleType?: string } | null) => {
-      // If edgeParams is null and event exists, connection was cancelled (dragged to empty space)
-      // This is the Houdini-style disconnect - remove the existing connection from that handle
-      if (!edgeParams && event) {
-        // User dragged but released in empty space - this is a disconnect attempt
-        // We can't easily detect which handle they started from, so this is limited
-        console.log('[App] Connection cancelled (dragged to empty space)');
+  const onReconnectEnd = useCallback(
+    (_: MouseEvent | TouchEvent, edge: Edge) => {
+      if (!reconnectSucceeded.current) {
+        console.log('[App] Edge dropped in empty space — removing:', edge.id);
+        setEdges(useGraphStore.getState().edges.filter((e) => e.id !== edge.id));
       }
+      reconnectSucceeded.current = false;
     },
-    []
+    [setEdges]
   );
+
+  // ─── Drop handling ─────────────────────────────────────────────────
 
   const onDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault();
@@ -173,24 +240,15 @@ function App() {
   const onDrop = useCallback(
     (event: React.DragEvent) => {
       event.preventDefault();
-
       const nodeType = event.dataTransfer.getData('application/reactflow') as ClawdiniNodeData['type'];
-      console.log('[App] onDrop:', nodeType, event.dataTransfer.types);
-
-      if (!nodeType) {
-        console.log('[App] No node type in drop');
-        return;
-      }
+      if (!nodeType) return;
 
       const reactFlowBounds = document.querySelector('.react-flow')?.getBoundingClientRect();
-
       if (reactFlowBounds) {
         const position = {
           x: event.clientX - reactFlowBounds.left - 90,
           y: event.clientY - reactFlowBounds.top - 20,
         };
-
-        console.log('[App] Adding node at:', position);
         addNode(nodeType, position);
       }
     },
@@ -208,71 +266,117 @@ function App() {
     [setSelectedNode]
   );
 
+  // ─── Render ────────────────────────────────────────────────────────
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
-      {/* Header */}
-      <div
-        style={{
-          height: 48,
-          background: '#0f0f23',
-          borderBottom: '1px solid #333',
-          display: 'flex',
-          alignItems: 'center',
-          padding: '0 16px',
-        }}
-      >
-        <span style={{ fontSize: 16, fontWeight: 700, color: '#8b5cf6' }}>Clawdini</span>
-        <span style={{ fontSize: 12, color: '#666', marginLeft: 8 }}>Agent Workflow Orchestrator</span>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: 'var(--bg-deep)' }}>
+      {/* ── Header ──────────────────────────────────────────────── */}
+      <div className="app-header">
+        <span className="logo">⬡ Clawdini</span>
+        <span className="subtitle">Agent Workflow Orchestrator</span>
+        <div className="spacer" />
+        <div className="toggle-group">
+          <button
+            className="panel-toggle-btn"
+            onClick={() => setShowPalette(!showPalette)}
+            title={showPalette ? 'Hide palette' : 'Show palette'}
+          >
+            {showPalette ? <PanelLeftClose size={14} /> : <PanelLeft size={14} />}
+          </button>
+          <button
+            className="panel-toggle-btn"
+            onClick={() => setShowRunLog(!showRunLog)}
+            title={showRunLog ? 'Hide run log' : 'Show run log'}
+          >
+            {showRunLog ? <PanelBottomClose size={14} /> : <PanelBottom size={14} />}
+          </button>
+          <button
+            className="panel-toggle-btn"
+            onClick={() => setShowInspector(!showInspector)}
+            title={showInspector ? 'Hide inspector' : 'Show inspector'}
+          >
+            {showInspector ? <PanelRightClose size={14} /> : <PanelRight size={14} />}
+          </button>
+        </div>
       </div>
 
-      {/* Main content */}
+      {/* ── Main content ────────────────────────────────────────── */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        <NodePalette />
-
-        <div style={{ flex: 1, position: 'relative' }}>
-          <ReactFlow
-            nodes={rfNodes}
-            edges={rfEdges}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            onConnect={onConnect}
-            onConnectStart={onConnectStart}
-            onConnectEnd={onConnectEnd}
-            onDragOver={onDragOver}
-            onDrop={onDrop}
-            onPaneClick={onPaneClick}
-            onNodeClick={onNodeClick}
-            onEdgeClick={(_, edge) => {
-              // Select edge by setting it as the only selected edge
-              setEdges(storeEdges.map(e => e.id === edge.id ? { ...e, selected: true } : { ...e, selected: false }));
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Delete' || event.key === 'Backspace') {
-                // Delete selected edges
-                const selectedEdges = storeEdges.filter(e => e.selected);
-                if (selectedEdges.length > 0) {
-                  setEdges(storeEdges.filter(e => !e.selected));
-                }
-              }
-            }}
-            nodeTypes={nodeTypes}
-            fitView
-            style={{ background: '#0a0a1a' }}
-            defaultEdgeOptions={{
-              type: 'smoothstep',
-              style: { stroke: '#666', strokeWidth: 2 },
-              selectable: true,
-            }}
-          >
-            <Background color="#333" gap={20} />
-            <Controls style={{ background: '#1a1a2e', borderColor: '#333' }} />
-          </ReactFlow>
+        {/* Left panel – Palette */}
+        <div className={`panel-left ${showPalette ? '' : 'collapsed'}`}>
+          <NodePalette />
         </div>
 
-        <NodeInspector />
-      </div>
+        {/* Center – Canvas */}
+        <div style={{ flex: 1, position: 'relative', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ flex: 1, position: 'relative' }}>
+            <ReactFlow
+              nodes={rfNodes}
+              edges={rfEdges}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              onConnect={onConnect}
+              onConnectStart={onConnectStart}
+              onConnectEnd={onConnectEnd}
+              onReconnect={onReconnect}
+              onReconnectEnd={onReconnectEnd}
+              onDragOver={onDragOver}
+              onDrop={onDrop}
+              onPaneClick={onPaneClick}
+              onNodeClick={onNodeClick}
+              onEdgeClick={(_, edge) => {
+                setEdges(storeEdges.map(e => e.id === edge.id ? { ...e, selected: true } : { ...e, selected: false }));
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Delete' || event.key === 'Backspace') {
+                  const selectedEdges = storeEdges.filter(e => e.selected);
+                  if (selectedEdges.length > 0) {
+                    setEdges(storeEdges.filter(e => !e.selected));
+                  }
+                }
+              }}
+              nodeTypes={nodeTypes}
+              fitView
+              style={{ background: 'var(--bg-base)' }}
+              defaultEdgeOptions={{
+                type: 'smoothstep',
+                style: { stroke: '#555580', strokeWidth: 2 },
+                selectable: true,
+                reconnectable: true,
+              }}
+            >
+              <Background color="#222248" gap={24} size={1} />
+              <Controls />
+              <MiniMap
+                style={{
+                  background: 'var(--bg-panel)',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: 8,
+                }}
+                nodeColor={(n: Node) => {
+                  const d = n.data as any;
+                  if (d?.type === 'input') return '#3b82f6';
+                  if (d?.type === 'agent') return '#8b5cf6';
+                  if (d?.type === 'merge') return '#22c55e';
+                  if (d?.type === 'output') return '#f59e0b';
+                  return '#555';
+                }}
+                maskColor="rgba(0,0,0,0.6)"
+              />
+            </ReactFlow>
+          </div>
 
-      <RunLog />
+          {/* Bottom panel – Run Log */}
+          <div className={`panel-bottom ${showRunLog ? '' : 'collapsed'}`}>
+            <RunLog />
+          </div>
+        </div>
+
+        {/* Right panel – Inspector */}
+        <div className={`panel-right ${showInspector ? '' : 'collapsed'}`}>
+          <NodeInspector />
+        </div>
+      </div>
     </div>
   );
 }

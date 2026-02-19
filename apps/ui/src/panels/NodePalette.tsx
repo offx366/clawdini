@@ -1,78 +1,104 @@
 // Node Palette - left panel with draggable node types
-import { FileInput, Bot, GitMerge, FileOutput } from 'lucide-react';
+import { FileInput, Bot, GitMerge, FileOutput, Scale } from 'lucide-react';
 import type { ClawdiniNodeData } from '@clawdini/types';
 import { useGraphStore } from '../store';
 
-const nodeTypes: { type: ClawdiniNodeData['type']; label: string; icon: React.ComponentType<{ className?: string }>; color: string }[] = [
-  { type: 'input', label: 'Input', icon: FileInput, color: '#3b82f6' },
-  { type: 'agent', label: 'Agent', icon: Bot, color: '#8b5cf6' },
-  { type: 'merge', label: 'Merge', icon: GitMerge, color: '#22c55e' },
-  { type: 'output', label: 'Output', icon: FileOutput, color: '#f59e0b' },
-];
+const nodeTypes: {
+  type: ClawdiniNodeData['type'];
+  label: string;
+  desc: string;
+  icon: React.ComponentType<{ size?: number; style?: React.CSSProperties }>;
+  color: string;
+}[] = [
+    { type: 'input', label: 'Input', desc: 'Prompt / source text', icon: FileInput, color: '#3b82f6' },
+    { type: 'agent', label: 'Agent', desc: 'AI agent execution', icon: Bot, color: '#8b5cf6' },
+    { type: 'merge', label: 'Merge', desc: 'Combine outputs', icon: GitMerge, color: '#22c55e' },
+    { type: 'judge', label: 'Judge', desc: 'Eval & JSON decision', icon: Scale, color: '#eab308' },
+    { type: 'output', label: 'Output', desc: 'Final result', icon: FileOutput, color: '#f59e0b' },
+  ];
 
 export function NodePalette() {
   const { addNode } = useGraphStore();
 
   const onDragStart = (event: React.DragEvent, nodeType: ClawdiniNodeData['type']) => {
-    console.log('[Palette] Drag start:', nodeType);
     event.dataTransfer.setData('application/reactflow', nodeType);
     event.dataTransfer.effectAllowed = 'move';
   };
 
-  // Fallback: click to add node at center
   const onClick = (nodeType: ClawdiniNodeData['type']) => {
-    console.log('[Palette] Click add:', nodeType);
-    // Add at center of canvas
     addNode(nodeType, { x: 250, y: 150 });
   };
 
   return (
     <div
       style={{
-        width: 160,
-        background: '#16213e',
-        borderRight: '1px solid #333',
-        padding: 16,
+        width: 'var(--palette-width)',
+        minWidth: 'var(--palette-width)',
+        background: 'var(--bg-panel)',
+        borderRight: '1px solid var(--border-subtle)',
+        padding: 12,
         display: 'flex',
         flexDirection: 'column',
-        gap: 8,
+        gap: 6,
+        overflowY: 'auto',
       }}
     >
-      <div style={{ fontSize: 12, color: '#888', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 1 }}>
+      <div
+        style={{
+          fontSize: 10,
+          color: 'var(--text-muted)',
+          marginBottom: 4,
+          textTransform: 'uppercase',
+          letterSpacing: '0.1em',
+          fontWeight: 700,
+        }}
+      >
         Nodes
       </div>
-      {nodeTypes.map(({ type, label, icon: Icon, color }) => (
+      {nodeTypes.map(({ type, label, desc, icon: Icon, color }) => (
         <div
           key={type}
+          className="palette-item"
           draggable
           onDragStart={(e) => onDragStart(e, type)}
           onClick={() => onClick(type)}
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            padding: '10px 12px',
-            background: '#1a1a2e',
-            border: `1px solid ${color}40`,
-            borderRadius: 6,
-            cursor: 'grab',
-            fontSize: 13,
-            color: '#eee',
-            transition: 'all 0.2s',
+            borderColor: `${color}25`,
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.borderColor = color;
-            e.currentTarget.style.background = `${color}20`;
+            e.currentTarget.style.borderColor = `${color}80`;
+            e.currentTarget.style.background = `${color}12`;
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.borderColor = `${color}40`;
-            e.currentTarget.style.background = '#1a1a2e';
+            e.currentTarget.style.borderColor = `${color}25`;
+            e.currentTarget.style.background = 'var(--bg-input)';
           }}
         >
-          <Icon className="w-4 h-4" style={{ color }} />
-          {label}
+          <div
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: 6,
+              background: `${color}18`,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+            }}
+          >
+            <Icon size={14} style={{ color }} />
+          </div>
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 12 }}>{label}</div>
+            <div style={{ fontSize: 9, color: 'var(--text-muted)', marginTop: 1 }}>{desc}</div>
+          </div>
         </div>
       ))}
+
+      <div style={{ flex: 1 }} />
+      <div style={{ fontSize: 9, color: 'var(--text-dim)', lineHeight: 1.4, padding: '8px 4px' }}>
+        Drag nodes onto the canvas or click to add at center.
+      </div>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 // Graph and Node types for Clawdini
 
 // Node types
-export type NodeType = 'input' | 'agent' | 'merge' | 'output';
+export type NodeType = 'input' | 'agent' | 'merge' | 'judge' | 'output';
 
 // Base node data
 export interface BaseNodeData {
@@ -19,6 +19,7 @@ export interface AgentNodeData extends BaseNodeData {
   type: 'agent';
   agentId: string;
   modelId?: string;
+  role?: 'planner' | 'critic' | 'researcher' | 'operator' | 'custom';
   output: string;
   status: 'idle' | 'running' | 'completed' | 'error';
 }
@@ -26,10 +27,19 @@ export interface AgentNodeData extends BaseNodeData {
 // MergeNode - combines outputs
 export interface MergeNodeData extends BaseNodeData {
   type: 'merge';
-  mode: 'concat' | 'llm';
+  mode: 'concat' | 'llm' | 'consensus';
   modelId?: string; // optional model for LLM merge
   prompt?: string; // custom prompt for LLM merge
   output: string;
+  status: 'idle' | 'running' | 'completed' | 'error';
+}
+
+// JudgeNode - evaluates inputs and outputs JSON decision
+export interface JudgeNodeData extends BaseNodeData {
+  type: 'judge';
+  modelId?: string;
+  criteria: string;
+  output: string; // JSON output
   status: 'idle' | 'running' | 'completed' | 'error';
 }
 
@@ -39,7 +49,7 @@ export interface OutputNodeData extends BaseNodeData {
   output: string;
 }
 
-export type ClawdiniNodeData = InputNodeData | AgentNodeData | MergeNodeData | OutputNodeData;
+export type ClawdiniNodeData = InputNodeData | AgentNodeData | MergeNodeData | JudgeNodeData | OutputNodeData;
 
 // Position for nodes
 export interface Position {
