@@ -10,8 +10,10 @@ import {
   ExtractNodeData,
   InvokeNodeData,
   ForEachNodeData,
+  StateNodeData,
+  TemplateNodeData,
 } from '@clawdini/types';
-import { Bot, FileInput, GitMerge, FileOutput, Loader2, CheckCircle, XCircle, GitBranch, Scale, Database, Zap, Repeat } from 'lucide-react';
+import { Bot, FileInput, GitMerge, FileOutput, Loader2, CheckCircle, XCircle, GitBranch, Scale, Database, Zap, Repeat, Layers, FileJson } from 'lucide-react';
 
 const nodeStyles: Record<string, { bg: string; border: string; glow: string }> = {
   input: { bg: '#0f2440', border: '#3b82f6', glow: 'rgba(59,130,246,0.15)' },
@@ -22,6 +24,8 @@ const nodeStyles: Record<string, { bg: string; border: string; glow: string }> =
   extract: { bg: '#082f2a', border: '#06b6d4', glow: 'rgba(6,182,212,0.15)' },
   invoke: { bg: '#2a0a0a', border: '#ef4444', glow: 'rgba(239,68,68,0.15)' },
   foreach: { bg: '#2a1400', border: '#f97316', glow: 'rgba(249,115,22,0.15)' },
+  state: { bg: '#081a2f', border: '#3b82f6', glow: 'rgba(59,130,246,0.15)' },
+  template: { bg: '#170c2e', border: '#6366f1', glow: 'rgba(99,102,241,0.15)' },
   output: { bg: '#2a1a08', border: '#f59e0b', glow: 'rgba(245,158,11,0.15)' },
 };
 
@@ -34,6 +38,8 @@ const icons: Record<string, React.ElementType> = {
   extract: Database,
   invoke: Zap,
   foreach: Repeat,
+  state: Layers,
+  template: FileJson,
   output: FileOutput,
 };
 
@@ -45,7 +51,7 @@ const statusConfig: Record<string, { icon: React.ElementType; color: string }> =
 };
 
 function ClawdiniNode({ data, selected, id }: NodeProps) {
-  const nodeData = data as unknown as InputNodeData | AgentNodeData | MergeNodeData | OutputNodeData | SwitchNodeData | ExtractNodeData | InvokeNodeData | ForEachNodeData;
+  const nodeData = data as unknown as InputNodeData | AgentNodeData | MergeNodeData | OutputNodeData | SwitchNodeData | ExtractNodeData | InvokeNodeData | ForEachNodeData | StateNodeData | TemplateNodeData;
   const type = nodeData.type;
   const style = nodeStyles[type] || nodeStyles.input;
   const Icon = icons[type] || FileInput;
@@ -187,6 +193,19 @@ function ClawdiniNode({ data, selected, id }: NodeProps) {
       {type === 'foreach' && (
         <div style={{ fontSize: 10, color: '#8888aa', display: 'flex', flexDirection: 'column', gap: 2 }}>
           Array: <span style={{ color: '#f97316' }}>{(nodeData as ForEachNodeData).arrayPath || 'Root Array'}</span>
+        </div>
+      )}
+
+      {type === 'template' && (
+        <div style={{ fontSize: 10, color: '#8888aa', display: 'flex', flexDirection: 'column', gap: 2 }}>
+          Format: <span style={{ color: '#6366f1' }}>{(nodeData as TemplateNodeData).format}</span>
+        </div>
+      )}
+
+      {type === 'state' && (
+        <div style={{ fontSize: 10, color: '#8888aa', display: 'flex', flexDirection: 'column', gap: 2 }}>
+          Namespace: <span style={{ color: '#3b82f6' }}>{(nodeData as StateNodeData).namespace}</span>
+          Mode: <span style={{ color: '#3b82f6' }}>{(nodeData as StateNodeData).mode}</span>
         </div>
       )}
 

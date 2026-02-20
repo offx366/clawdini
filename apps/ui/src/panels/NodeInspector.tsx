@@ -275,6 +275,21 @@ export function NodeInspector() {
               rows={5}
             />
           </div>
+
+          <div>
+            <label className="inspector-label" style={{ marginTop: 8 }}>Pass Threshold Score (0-100)</label>
+            <input
+              type="number"
+              className="inspector-input"
+              value={(data as any).passScore || 80}
+              onChange={(e) => updateNode(selectedNode.id, { passScore: parseInt(e.target.value, 10) || 80 })}
+              min={0}
+              max={100}
+            />
+            <div style={{ fontSize: 9, color: 'var(--text-dim)', marginTop: 4, lineHeight: 1.4 }}>
+              If the LLM scores the input below this threshold, the decision status may route to a retry or fail branch.
+            </div>
+          </div>
         </>
       )}
 
@@ -297,30 +312,62 @@ export function NodeInspector() {
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {((data as SwitchNodeData).rules || []).map((rule, idx) => (
-              <div key={rule.id} style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                <span style={{ fontSize: 10, color: 'var(--text-muted)', width: 14 }}>{idx + 1}.</span>
-                <input
-                  type="text"
-                  className="inspector-input"
-                  style={{ flex: 1, fontFamily: 'monospace', fontSize: 11 }}
-                  value={rule.condition}
-                  onChange={(e) => {
-                    const rules = [...((data as SwitchNodeData).rules || [])];
-                    rules[idx] = { ...rule, condition: e.target.value };
-                    updateNode(selectedNode.id, { rules });
-                  }}
-                  placeholder="Regex pattern (e.g. .*error.*)"
-                />
-                <button
-                  style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 2, display: 'flex' }}
-                  onClick={() => {
-                    const rules = ((data as SwitchNodeData).rules || []).filter(r => r.id !== rule.id);
-                    updateNode(selectedNode.id, { rules });
-                  }}
-                  title="Remove rule"
-                >
-                  <XCircle size={12} />
-                </button>
+              <div key={rule.id} style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: 6, background: 'rgba(0,0,0,0.1)', borderRadius: 4 }}>
+                <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                  <span style={{ fontSize: 10, color: 'var(--text-muted)', width: 14 }}>{idx + 1}.</span>
+                  <select
+                    className="inspector-select"
+                    style={{ width: 'auto', padding: '2px 4px' }}
+                    value={rule.mode || 'regex'}
+                    onChange={(e) => {
+                      const rules = [...((data as SwitchNodeData).rules || [])];
+                      rules[idx] = { ...rule, mode: e.target.value as 'regex' | 'fieldMatch' };
+                      updateNode(selectedNode.id, { rules });
+                    }}
+                  >
+                    <option value="regex">Regex</option>
+                    <option value="fieldMatch">Field Match</option>
+                  </select>
+                  <button
+                    style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 2, display: 'flex', marginLeft: 'auto' }}
+                    onClick={() => {
+                      const rules = ((data as SwitchNodeData).rules || []).filter(r => r.id !== rule.id);
+                      updateNode(selectedNode.id, { rules });
+                    }}
+                    title="Remove rule"
+                  >
+                    <XCircle size={12} />
+                  </button>
+                </div>
+
+                <div style={{ display: 'flex', gap: 4, paddingLeft: 18 }}>
+                  <input
+                    type="text"
+                    className="inspector-input"
+                    style={{ flex: 1, fontFamily: 'monospace', fontSize: 11 }}
+                    value={rule.condition}
+                    onChange={(e) => {
+                      const rules = [...((data as SwitchNodeData).rules || [])];
+                      rules[idx] = { ...rule, condition: e.target.value };
+                      updateNode(selectedNode.id, { rules });
+                    }}
+                    placeholder={rule.mode === 'fieldMatch' ? "JSON Path (e.g. decision.status)" : "Regex pattern (e.g. .*error.*)"}
+                  />
+                  {rule.mode === 'fieldMatch' && (
+                    <input
+                      type="text"
+                      className="inspector-input"
+                      style={{ flex: 1, fontFamily: 'monospace', fontSize: 11 }}
+                      value={rule.valueMatch || ''}
+                      onChange={(e) => {
+                        const rules = [...((data as SwitchNodeData).rules || [])];
+                        rules[idx] = { ...rule, valueMatch: e.target.value };
+                        updateNode(selectedNode.id, { rules });
+                      }}
+                      placeholder="Value to match"
+                    />
+                  )}
+                </div>
               </div>
             ))}
             {((data as SwitchNodeData).rules || []).length === 0 && (
@@ -414,6 +461,68 @@ export function NodeInspector() {
             <div style={{ fontSize: 9, color: 'var(--text-dim)', marginTop: 4, lineHeight: 1.4 }}>
               Leave blank to use the root JSON array. The graph logic below this node will execute in parallel for each item in the array.
             </div>
+          </div>
+        </>
+      )}
+
+      {data.type === 'state' && (
+        <>
+          <div>
+            <label className="inspector-label">Namespace</label>
+            <input
+              type="text"
+              className="inspector-input"
+              value={(data as any).namespace || ''}
+              onChange={(e) => updateNode(selectedNode.id, { namespace: e.target.value })}
+              placeholder="e.g. global, user_context"
+            />
+          </div>
+
+          <div>
+            <label className="inspector-label" style={{ marginTop: 8 }}>Write Mode</label>
+            <select
+              className="inspector-select"
+              value={(data as any).mode || 'merge'}
+              onChange={(e) => updateNode(selectedNode.id, { mode: e.target.value as 'merge' | 'replace' | 'append' })}
+            >
+              <option value="merge">Merge (Deep merge JSON objects)</option>
+              <option value="replace">Replace (Overwrite namespace state)</option>
+              <option value="append">Append (Add to array if state is array)</option>
+            </select>
+            <div style={{ fontSize: 9, color: 'var(--text-dim)', marginTop: 4, lineHeight: 1.4 }}>
+              The node saves downstream input data to the blackboard. Output handles emit the updated global state snapshot.
+            </div>
+          </div>
+        </>
+      )}
+
+      {data.type === 'template' && (
+        <>
+          <div>
+            <label className="inspector-label">Template Structure</label>
+            <textarea
+              className="inspector-textarea"
+              value={(data as any).template || ''}
+              onChange={(e) => updateNode(selectedNode.id, { template: e.target.value })}
+              placeholder="Task: {{task.text}}\n\nState: {{state.json}}"
+              rows={8}
+              style={{ fontFamily: 'monospace', fontSize: 11 }}
+            />
+            <div style={{ fontSize: 9, color: 'var(--text-dim)', marginTop: 4, lineHeight: 1.4 }}>
+              Fuses upstream payloads via Handlebar-like tags (e.g., {'{{nodeLabel.text}}'}).
+            </div>
+          </div>
+
+          <div>
+            <label className="inspector-label" style={{ marginTop: 8 }}>Output Format</label>
+            <select
+              className="inspector-select"
+              value={(data as any).format || 'text'}
+              onChange={(e) => updateNode(selectedNode.id, { format: e.target.value as 'text' | 'json' })}
+            >
+              <option value="text">Raw Text (Prompt Template)</option>
+              <option value="json">JSON Object (Requires valid JSON schema after merge)</option>
+            </select>
           </div>
         </>
       )}

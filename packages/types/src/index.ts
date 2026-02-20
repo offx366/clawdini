@@ -1,7 +1,20 @@
 // Graph and Node types for Clawdini
 
 // Node types
-export type NodeType = 'input' | 'agent' | 'merge' | 'judge' | 'output' | 'switch' | 'extract' | 'invoke' | 'foreach';
+export type NodeType = 'input' | 'agent' | 'merge' | 'judge' | 'output' | 'switch' | 'extract' | 'invoke' | 'foreach' | 'state' | 'template';
+
+// Strongly typed ports
+export type PortType = 'text' | 'json' | 'task' | 'decision' | 'state' | 'any';
+
+// Core Decision contract from Judge Node
+export interface Decision {
+  status: 'done' | 'continue' | 'needs_info' | 'failed' | 'human_review';
+  score: number;
+  reasons: string[];
+  missing: string[];
+  nextActionHint: string;
+  recommendedBranch: string;
+}
 
 // Payload structure that flows between nodes
 export interface NodePayload {
@@ -49,6 +62,7 @@ export interface JudgeNodeData extends BaseNodeData {
   type: 'judge';
   modelId?: string;
   criteria: string;
+  passScore?: number;
 }
 
 // OutputNode - final output
@@ -58,7 +72,9 @@ export interface OutputNodeData extends BaseNodeData {
 
 export interface SwitchRule {
   id: string;
-  condition: string; // Regex pattern for text match
+  mode: 'regex' | 'fieldMatch';
+  condition: string; // Regex pattern or JSON path (e.g., "decision.status")
+  valueMatch?: string; // Target value to match if mode is fieldMatch
 }
 
 // SwitchNode - branches flow based on regex matches
@@ -87,7 +103,21 @@ export interface ForEachNodeData extends BaseNodeData {
   arrayPath?: string;       // Optional JSONPath or key to extract array from payload
 }
 
-export type ClawdiniNodeData = InputNodeData | AgentNodeData | MergeNodeData | JudgeNodeData | OutputNodeData | SwitchNodeData | ExtractNodeData | InvokeNodeData | ForEachNodeData;
+// StateNode - Blackboard memory for subgraph executions
+export interface StateNodeData extends BaseNodeData {
+  type: 'state';
+  namespace: string;
+  mode: 'merge' | 'replace' | 'append';
+}
+
+// TemplateNode - Builder for fusing inputs
+export interface TemplateNodeData extends BaseNodeData {
+  type: 'template';
+  template: string;
+  format: 'text' | 'json';
+}
+
+export type ClawdiniNodeData = InputNodeData | AgentNodeData | MergeNodeData | JudgeNodeData | OutputNodeData | SwitchNodeData | ExtractNodeData | InvokeNodeData | ForEachNodeData | StateNodeData | TemplateNodeData;
 
 // Position for nodes
 export interface Position {

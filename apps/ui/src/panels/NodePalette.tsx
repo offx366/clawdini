@@ -1,5 +1,4 @@
-// Node Palette - left panel with draggable node types
-import { FileInput, Bot, GitMerge, FileOutput, Scale, GitBranch, Database, Zap, Repeat } from 'lucide-react';
+import { FileInput, Bot, GitMerge, FileOutput, Scale, GitBranch, Database, Zap, Repeat, Layers, FileJson } from 'lucide-react';
 import type { ClawdiniNodeData } from '@clawdini/types';
 import { useGraphStore } from '../store';
 
@@ -18,6 +17,8 @@ const nodeTypes: {
     { type: 'extract', label: 'Extract', desc: 'Force JSON extraction', icon: Database, color: '#06b6d4' },
     { type: 'invoke', label: 'Invoke', desc: 'Call OpenClaw API', icon: Zap, color: '#ef4444' },
     { type: 'foreach', label: 'ForEach', desc: 'Parallel execution per item', icon: Repeat, color: '#f97316' },
+    { type: 'state', label: 'State', desc: 'Global memory', icon: Layers, color: '#3b82f6' },
+    { type: 'template', label: 'Template', desc: 'Build prompt structure', icon: FileJson, color: '#6366f1' },
     { type: 'output', label: 'Output', desc: 'Final result', icon: FileOutput, color: '#f59e0b' },
   ];
 

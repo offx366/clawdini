@@ -59,14 +59,20 @@ function createDefaultNodeData(type: ClawdiniNode['data']['type']): ClawdiniNode
       return { type: 'agent', label: `Agent-${id.slice(0, 4)}`, agentId: '', status: 'idle' };
     case 'merge':
       return { type: 'merge', label: `Merge-${id.slice(0, 4)}`, mode: 'concat', status: 'idle' };
+    case 'judge':
+      return { type: 'judge', label: `Judge-${id.slice(0, 4)}`, criteria: '1. Accuracy\\n2. Clarify', passScore: 80, status: 'idle' };
     case 'switch':
-      return { type: 'switch', label: `Switch-${id.slice(0, 4)}`, rules: [{ id: uuidv4(), condition: '.*' }], status: 'idle' };
+      return { type: 'switch', label: `Switch-${id.slice(0, 4)}`, rules: [{ id: uuidv4(), mode: 'regex', condition: '.*' }], status: 'idle' };
     case 'extract':
       return { type: 'extract', label: `Extract-${id.slice(0, 4)}`, schema: '{\n  "key": "value"\n}', status: 'idle' };
     case 'invoke':
       return { type: 'invoke', label: `Invoke-${id.slice(0, 4)}`, commandName: 'system.run', payloadTemplate: '{\\n  "command": "echo \\"{INPUT}\\""\\n}', status: 'idle' };
     case 'foreach':
       return { type: 'foreach', label: `ForEach-${id.slice(0, 4)}`, arrayPath: '', status: 'idle' };
+    case 'state':
+      return { type: 'state', label: `State-${id.slice(0, 4)}`, namespace: 'global', mode: 'merge', status: 'idle' };
+    case 'template':
+      return { type: 'template', label: `Template-${id.slice(0, 4)}`, template: 'Task: {{task.text}}\\nState: {{state.json.summary}}', format: 'text', status: 'idle' };
     case 'output':
       return { type: 'output', label: `Output-${id.slice(0, 4)}`, status: 'idle' };
     default:

@@ -14,6 +14,8 @@ import type {
   ExtractNodeData,
   InvokeNodeData,
   ForEachNodeData,
+  StateNodeData,
+  TemplateNodeData,
 } from '@clawdini/types';
 import { GatewayClient } from '../gateway/client.js';
 
@@ -97,6 +99,7 @@ export class GraphRunner {
   private nodeOutputs = new Map<string, NodeOutput>();
   private runningNodes = new Map<string, { runId: string; sessionKey: string }>();
   private disabledEdges = new Set<string>();
+  private globalState: Record<string, any> = {};
   private cancelled = false;
 
   constructor(gatewayClient: GatewayClient, eventHandler: EventHandler) {
@@ -111,6 +114,7 @@ export class GraphRunner {
     this.nodeOutputs.clear();
     this.runningNodes.clear();
     this.disabledEdges.clear();
+    this.globalState = {};
 
     // Give SSE clients time to connect
     await new Promise(resolve => setTimeout(resolve, 500));
@@ -193,6 +197,12 @@ export class GraphRunner {
           break;
         case 'foreach':
           output = await this.executeForEachNode(graph, nodeId, data as ForEachNodeData);
+          break;
+        case 'state':
+          output = await this.executeStateNode(graph, nodeId, data as StateNodeData);
+          break;
+        case 'template':
+          output = await this.executeTemplateNode(graph, nodeId, data as TemplateNodeData);
           break;
         case 'judge':
           output = await this.executeJudgeNode(graph, nodeId, data as any);
@@ -530,10 +540,12 @@ ${inputText}
 
 --- REQUIRED JSON FORMAT ---
 {
-  "score": <number from 1 to 10>,
-  "approved": <boolean>,
-  "reasoning": "<short explanation>",
-  "action_items": ["<item 1>", "<item 2>"]
+  "status": "done" | "continue" | "needs_info" | "failed" | "human_review",
+  "score": <number from 0 to 100>,
+  "reasons": ["<reason 1>", "<reason 2>"],
+  "missing": ["<missing information>"],
+  "nextActionHint": "<what needs to be done next>",
+  "recommendedBranch": "<name of branch to take>"
 }
 
 OUTPUT RAW JSON:`;
@@ -574,9 +586,9 @@ OUTPUT RAW JSON:`;
     const inputEdges = graph.edges.filter((e) => e.target === node.id);
     let inputText = '';
     let sessionKey = uuidv4();
+    const sourceOutputs: NodePayload[] = [];
 
     if (inputEdges.length > 0) {
-      const sourceOutputs: NodePayload[] = [];
       for (const edge of inputEdges) {
         if (this.disabledEdges.has(edge.id)) continue;
         const sourceOutput = this.nodeOutputs.get(edge.source);
@@ -592,11 +604,37 @@ OUTPUT RAW JSON:`;
 
     const matchingRuleIds: string[] = [];
     for (const rule of data.rules || []) {
-      try {
-        const regex = new RegExp(rule.condition);
-        if (regex.test(inputText)) matchingRuleIds.push(rule.id);
-      } catch (e) {
-        console.error('Invalid regex', rule.condition);
+      if (rule.mode === 'fieldMatch' && rule.condition && rule.valueMatch) {
+        // Evaluate JSON path against the payload json
+        try {
+          const sourcesWithJson = sourceOutputs.filter(o => o.json);
+          // Just check the first valid JS object for now
+          if (sourcesWithJson.length > 0) {
+            const parts = rule.condition.split('.');
+            let current = sourcesWithJson[0].json;
+            for (const part of parts) {
+              if (current && typeof current === 'object') {
+                current = current[part];
+              } else {
+                current = undefined;
+                break;
+              }
+            }
+            if (String(current) === rule.valueMatch) {
+              matchingRuleIds.push(rule.id);
+            }
+          }
+        } catch (e) {
+          console.error('[Runner] Field match evaluation error', e);
+        }
+      } else {
+        // Fallback to regex
+        try {
+          const regex = new RegExp(rule.condition);
+          if (regex.test(inputText)) matchingRuleIds.push(rule.id);
+        } catch (e) {
+          console.error('Invalid regex', rule.condition);
+        }
       }
     }
 
@@ -798,6 +836,117 @@ OUTPUT RAW JSON:`;
     return { text: `Completed ${targetArray.length} parallel sub-executions.`, meta: { sessionKey } };
   }
 
+  private async executeTemplateNode(graph: ClawdiniGraph, nodeId: string, data: TemplateNodeData): Promise<NodePayload> {
+    const inputEdges = graph.edges.filter((e) => e.target === nodeId);
+    const context: Record<string, any> = { state: this.globalState };
+
+    // Attempt to parse incoming data by node label to be injected into template variables
+    // For simplicity, we also inject all incoming text simply as \`input\`
+    let rawInputText = '';
+    for (const edge of inputEdges) {
+      if (this.disabledEdges.has(edge.id)) continue;
+      const sourceNode = graph.nodes.find(n => n.id === edge.source);
+      const sourceOutput = this.nodeOutputs.get(edge.source);
+
+      if (sourceNode && sourceOutput && sourceOutput.status === 'completed') {
+        rawInputText += sourceOutput.output.text + '\\n\\n';
+        const labelName = sourceNode.data.label.replace(/[^a-zA-Z0-9_]/g, '');
+        context[labelName] = { text: sourceOutput.output.text, json: sourceOutput.output.json };
+      }
+    }
+    context['input'] = { text: rawInputText };
+    context['task'] = context['input']; // fallback alias
+
+    let resultText = data.template || '';
+
+    // Extremely basic Handlebars-style replacement {{key.subkey}}
+    // Allows {{state.global.auth}}, {{Task1.text}}, {{input.text}}
+    resultText = resultText.replace(/\\{\\{([a-zA-Z0-9_.]+)\\}\\}/g, (match, path) => {
+      const parts = path.split('.');
+      let current = context;
+      for (const part of parts) {
+        if (current && typeof current === 'object') {
+          current = current[part];
+        } else {
+          return match; // Leave unreplaced if not found
+        }
+      }
+      return typeof current === 'object' ? JSON.stringify(current) : String(current);
+    });
+
+    let resultJson = undefined;
+    if (data.format === 'json') {
+      try {
+        resultJson = JSON.parse(resultText);
+      } catch (e) {
+        console.error('[Runner] Template node failed to parse format as JSON', e);
+      }
+    }
+
+    return {
+      text: resultText,
+      json: resultJson,
+      meta: { sessionKey: `template:${this.runId}:${nodeId}` }
+    };
+  }
+
+  private async executeStateNode(graph: ClawdiniGraph, nodeId: string, data: StateNodeData): Promise<NodePayload> {
+    const inputEdges = graph.edges.filter((e) => e.target === nodeId);
+    const namespace = data.namespace || 'global';
+
+    let incomingJson: any = null;
+    let incomingText = '';
+
+    for (const edge of inputEdges) {
+      if (this.disabledEdges.has(edge.id)) continue;
+      const sourceOutput = this.nodeOutputs.get(edge.source);
+      if (sourceOutput && sourceOutput.status === 'completed') {
+        if (sourceOutput.output.json) incomingJson = sourceOutput.output.json;
+        incomingText += sourceOutput.output.text + '\\n';
+      }
+    }
+
+    if (!incomingJson) {
+      try {
+        incomingJson = JSON.parse(incomingText);
+      } catch (e) {
+        incomingJson = { text: incomingText.trim() };
+      }
+    }
+
+    // Default initialization
+    if (!this.globalState[namespace]) {
+      this.globalState[namespace] = data.mode === 'append' ? [] : {};
+    }
+
+    if (data.mode === 'replace') {
+      this.globalState[namespace] = incomingJson;
+    } else if (data.mode === 'append') {
+      if (Array.isArray(this.globalState[namespace])) {
+        this.globalState[namespace].push(incomingJson);
+      } else {
+        console.warn(`[Runner] State mode is append but namespace ${namespace} is not array.`);
+        this.globalState[namespace] = [this.globalState[namespace], incomingJson];
+      }
+    } else {
+      // Default merge
+      if (typeof incomingJson === 'object' && typeof this.globalState[namespace] === 'object') {
+        this.globalState[namespace] = { ...this.globalState[namespace], ...incomingJson };
+      } else {
+        this.globalState[namespace] = incomingJson;
+      }
+    }
+
+    const currentState = this.globalState[namespace];
+    const sessionKey = `state:${this.runId}:${nodeId}`;
+
+    return {
+      text: typeof currentState === 'object' ? JSON.stringify(currentState, null, 2) : String(currentState),
+      json: currentState,
+      meta: { sessionKey }
+    };
+  }
+
   private waitForMergeResult(nodeId: string, sessionKey: string, runId: string): Promise<string> {
     return new Promise((resolve, reject) => {
       let fullOutput = '';
@@ -849,7 +998,7 @@ OUTPUT RAW JSON:`;
                 const delta = text.slice(fullOutput.length);
                 if (delta) {
                   this.emitEvent({ type: 'nodeDelta', nodeId, data: { text: delta, meta: {} } });
-                  this.emitEvent({ type: 'thinking', nodeId, content: `🔀 Merging: ${delta.slice(0, 50)}` });
+                  this.emitEvent({ type: 'thinking', nodeId, content: `🔀 Merging: ${delta.slice(0, 50)} ` });
                 }
                 fullOutput = text;
               } else {

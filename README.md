@@ -9,10 +9,17 @@ A visual workflow editor for orchestrating AI agents using OpenClaw Gateway. Bui
 ## Features
 
 - **Visual Node Editor** - Drag and drop nodes to build workflows
-- **4 Node Types**:
+- **11 Node Types**:
   - **Input** - Define prompts/inputs
   - **Agent** - Execute AI agents with optional model selection
   - **Merge** - Combine multiple agent outputs (concat or LLM)
+  - **Judge** - Evaluate outputs using LLMs to create strict `Decision` payloads
+  - **Switch** - Route execution via Regex or nested JSON field matches
+  - **Extract** - Force LLMs to output guaranteed JSON schemas
+  - **Invoke** - Execute external OpenClaw system commands
+  - **ForEach** - Parallel Map/Reduce sub-graph execution over arrays
+  - **State** - Persist and aggregate cross-run Memory into global namespaces
+  - **Template** - Build Prompts by fusing variables using Handlebars tags
   - **Output** - Capture final results
 - **Model Selection** - Choose different AI models per agent/merge node
 - **Parallel Execution** - Agents run in parallel when not dependent on each other
@@ -23,8 +30,9 @@ A visual workflow editor for orchestrating AI agents using OpenClaw Gateway. Bui
 
 ## Recent updates
 
-- **Fixed Merge Node Timeout:** Resolved an issue where the Merge node would time out after 120 seconds. The issue was traced to the Gateway strictly routing chats based on agent prefixes. The `sessionKey` was updated to properly use the `agent:main:merge:...` format, ensuring the Gateway correctly routes the merge request.
-- **Fixed Node Delta Duplication:** Addressed a frontend log duplication issue. The runner now properly handles `chat` update events and slices the generated text only when sending `nodeDelta` to the UI, preventing repeated strings from accumulating in the Run Log.
+- **Visual Agent OS (v0.2 Sprint 1):** Upgraded Clawdini from a text-processor to a robust multi-agent orchestration pipeline. Added strongly typed schema support (`NodePayload`) across ports.
+- **Added 6 Core OS Nodes:** Deployed Judge (Structured Decisions), State (Cross-node Memory), Template (Prompt Fusion), Switch (Deep JSON Routing), Extract (Guaranteed JSON schema output), and Invoke (OpenClaw bridge).
+- **Advanced Draft Improvement Loops:** The backend `GraphRunner` now natively supports iterative generation scenarios, halting, looping, and map/reduction over arrays (`ForEach`).
 
 ## Quick Start
 
@@ -108,6 +116,23 @@ The starting point of your workflow. Defines the input/prompt that will be sent 
 **Usage:**
 ```
 [Input] ──────► [Agent]
+```
+
+---
+
+### Template Node
+The Template Builder injects static text with variables populated from upstream nodes or global data namespaces using a Handlebars-like syntax (e.g. `{{state.feedback}}` or `{{Agent1.text}}`).
+
+**Properties:**
+| Property | Type | Description |
+|----------|------|-------------|
+| `label` | string | Display name |
+| `template`| string | The raw text specifying what to render |
+| `format` | string | 'text' or 'json' for strict parsing. |
+
+**Usage:**
+```
+[Input] ──────► [Template] ──────► [Agent]
 ```
 
 ---
@@ -213,6 +238,36 @@ Provide a summary.
                   ├──► [Merge: LLM] ──► [Output]
 [Agent: default] ──┘
 ```
+
+---
+
+### Judge Node
+The Judge Node evaluates input context against explicit pass/fail criteria and generates a strict JSON `Decision` schema summarizing its assessment, scores, and required action items.
+
+**Properties:**
+| Property | Type | Description |
+|----------|------|-------------|
+| `label` | string | Display name |
+| `modelId` | string (optional) | Override fallback LLM |
+| `criteria` | string | Rule descriptions for the Judge |
+| `passScore`| number | (0 - 100) Minimum scoring boundary |
+
+---
+
+### Switch & Router
+Branches execution flow by comparing inputs via traditional regular expressions or advanced nested `fieldMatch` rules on incoming `payload.json` objects (e.g., `status` equals `done`).
+
+---
+
+### State (Blackboard) Node
+Creates a generic global shared memory namespace across the current run, absorbing input via three separate write modes: `append`, `replace`, and `merge`.
+
+---
+
+### Extract, Invoke, ForEach
+- **Extract**: Guarantees output formats to precisely match a JSON schema definition.
+- **Invoke**: Native binding utilizing `gatewayClient.request(...)` natively.
+- **ForEach**: Recursively forks parallel subgraph child-executors for each slice mapped from an initial array field.
 
 ---
 
